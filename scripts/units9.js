@@ -1,0 +1,675 @@
+// Каталог востока (Киевщина, Днепропетровщина, Кировоградщина) — копия каталога запада v3,
+// формат «топ-50 на область» отдельно по домам и квартирам В КАЖДОМ источнике
+// (OLX, ЛУН, Телеграм, Фейсбук). Правила покупателя от 02.09.2026:
+//   • дальше 10 км от города — не рассматриваем вообще (кроме закреплённых
+//     лотов с разбором «нам подходит» — их метки нельзя терять; с 21.10.2026 — кроме
+//     Facebook, см. gate());
+//   • близость к городу в индексе цена/качество весит 2:1 к каждой другой категории.
+// Набор «получистовая» — отдельный список по тем же правилам (топ-50 на область в каждом
+// источнике по домам и квартирам, ≤10 км): кандидаты — то, что готовый отбор отбросил по
+// состоянию, плюс перенесённые карточки прежней страницы (live-semi.json).
+const fs = require('fs');
+const path = require('path');
+const L = require('./lib9');
+const D = path.join(__dirname, 'data') + path.sep;
+const SP9 = 'C:/Users/xetr11/AppData/Local/Temp/claude/c--Users-xetr11-Documents-New-folder/09f7008e-ddb2-410c-96d4-ccf69000c0d4/scratchpad/';
+const D5 = 'C:/Users/xetr11/AppData/Local/Temp/claude/c--Users-xetr11-Documents-New-folder/5e19b764-3f94-4fb8-8c59-b1d354783282/scratchpad/';
+const D2 = 'C:/Users/xetr11/AppData/Local/Temp/claude/c--Users-xetr11-Documents-New-folder/2ba88487-cdb9-423e-b5e9-69abf018ad10/scratchpad/';
+const EXT = 'C:/Users/xetr11/AppData/Local/Temp/claude/c--Users-xetr11-Documents-New-folder/7f7d4dba-ff73-4030-a5e2-5fb02c6c4786/scratchpad/';
+const rd = f => JSON.parse(fs.readFileSync(f, 'utf8'));
+// Латиница внутри украинских слов ломает UNFIN/BAD_TEXT/SHARE: «будiвельний вагончик»
+// с латинской i проходил как готовое жильё. Чистим заголовок и описание на входе,
+// один раз для всех источников (см. deLatin в lib9.js).
+const deL = o => {
+  if (o && typeof o === 'object') for (const k of ['title', 'desc', 'text'])
+    if (typeof o[k] === 'string') o[k] = L.deLatin(o[k]);
+  return o;
+};
+const rdLots = f => { const j = rd(f); if (Array.isArray(j)) j.forEach(deL); else if (j.items) Object.values(j.items).forEach(deL); return j; };
+const ex = f => fs.existsSync(f);
+
+// TOP_FLAT: для квартир потолок в пять раз выше (просьба покупателя 13.09.2026).
+// При топ-50 только по квартирам OLX за бортом оставалось 518 лотов, прошедших все
+// фильтры, и перекос был резкий: 225 из них в Ивано-Франковске и 48 в Хмельницком —
+// то есть именно там, где предложений больше всего, каталог показывал пятую часть рынка.
+// TOP (дома): 50 → 100 (просьба покупателя 20.10.2026 — «домов вообще много, на каждый
+// источник сделай топ-100, чтобы влезло побольше») и квота — на каждую полосу цены
+// отдельно. Сначала своя сотня появилась у полосы $20–30 тыс., затем (20.10.2026, «затяни
+// группы домов по аналогии 30–35, 35–40, 40–45») — у каждой из трёх полос $30–45 тыс.:
+// pickTop раскладывает дома области по полосам PRICE_BANDS, и дом занимает место только
+// среди домов своей полосы. Это только добавляет: общая сотня $30–45 тыс. теперь три сотни.
+const TOP = 100, TOP_FLAT = 250, KM_MAX = 10;
+const DEAD = new Set(rd(path.join(__dirname, '..', 'dead.json')).dead || []);
+const EXCLUDED = new Set(rd(path.join(__dirname, '..', 'excluded.json')).excluded || []);
+const geo9 = rd(D + 'geocode9.json');
+const shapes = rd(D + 'oblast-shapes9.json');
+const vet = ex(D + 'photo-vet.json') ? rd(D + 'photo-vet.json') : {};
+const views9 = ex(D + 'views9.json') ? rd(D + 'views9.json') : {};
+const family = ex(D + 'family.json') ? rd(D + 'family.json') : (ex(D5 + 'family.json') ? rd(D5 + 'family.json') : {});
+const PINNED = new Set(Object.keys(family));
+const legacyVetted = new Set((ex(D2 + 'ranked.json') ? rd(D2 + 'ranked.json') : []).map(r => r.id));
+const addr9 = ex(D + 'addr9.json') ? rd(D + 'addr9.json') : {};
+const livePts = ex(D + 'live-pts.json') ? Object.fromEntries(rd(D + 'live-pts.json').map(p => [p.i, p])) : {};
+
+const NOW = Date.now();
+const daysSince = iso => iso ? Math.max(1, Math.round((NOW - Date.parse(iso)) / 86400000)) : null;
+const usdOf = u => u.cur === 'USD' ? u.price : (u.curConv === 'USD' ? u.priceConv : null);
+const num = v => { const n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return isNaN(n) ? null : n; };
+
+const drop = { dead: 0, excluded: 0, share: 0, unfin: 0, far: 0, nogeo: 0, badtype: 0, budget: 0, small: 0, unvetted: 0, zak: 0,
+  nbShell: 0 };
+let pinnedKept = 0;
+// «Чистовая от застройщика» — третья категория готовности, отдельная и от готового, и от
+// получистовой (просьба покупателя 08.09.2026: «отбирать после застройщиков отдельным
+// фильтром», три категории — готовое / получистовая / чистовая после застройщика).
+// nbHold объявлен здесь же, а не в блоке новостроек ниже: чистовая от OLX-застройщика
+// перехватывается раньше — прямо в разборе квартир (секция 2), до фотопроверки новостроек.
+const rawCand = [];
+const seenRaw = new Set();
+const nbHold = new Set(); // id новостроек вне «готового»: отклонённые, ждущие фотопроверки, ушедшие в «чистовая от застройщика»
+function pushRaw(u, cls) {
+  if (seenRaw.has(u.id)) return;
+  seenRaw.add(u.id); nbHold.add(u.id);
+  u.isNew = false; u.ready = 'raw'; u.semi = cls;
+  u.quality = u.kind === 'house' ? L.semiHouseQuality9(u) : L.semiFlatQuality9(u);
+  rawCand.push(u);
+}
+
+function coordsFor(u) {
+  // адрес из текста объявления точнее центра населённого пункта
+  const a = addr9[u.id];
+  if (a && a.lat) return { lat: a.lat, lon: a.lon, src: a.src === 'street' ? (a.house ? 'house' : 'street') : 'place' };
+  const k = (u.loc || '') + '|' + (u.region || '');
+  const g = geo9[k];
+  if (g && g.lat) return { lat: g.lat, lon: g.lon, src: 'loc' };
+  if (u.lat && u.lon) return { lat: u.lat, lon: u.lon, src: 'olxmap' };
+  const lp = livePts[u.id];
+  if (lp) return { lat: lp.lat, lon: lp.lon, src: 'live' };
+  return null;
+}
+// Новостройка в приоритете (просьба покупателя 03.09.2026): у OLX есть параметр
+// «Новобудова», у ЛУНа и Телеграма — только текст, поэтому там смотрим заголовок с описанием.
+// «ЖК» в шаблон не берём: он ловит «обмін на квартиру в ЖК» у обычной вторички.
+const NEWBUILD = /новобудов|новобуд\.|нова забудова|щойно зданий будинок/i;
+function markNew(u) {
+  const txt = (u.title || '') + ' ' + String(u.desc || '').slice(0, 300);
+  if (u.isNew == null) u.isNew = NEWBUILD.test(txt);
+  // стройка — не новостройка: лот «на етапі взведення покрівлі» приоритета не получает,
+  // иначе он встаёт первым в списке впереди готового жилья
+  if (u.isNew && (L.UNFIN.test(txt) || L.BAD_TEXT.test(txt))) u.isNew = false;
+  return u;
+}
+// Первинний ринок — OLX сам помечает структурным полем «apartments_object_type:key» =
+// «primary_market» (без привязки к тексту объявления). Раньше сюда же требовался
+// «contract_type:key» с «from_developer» («Від забудовника»), но правило от 08.09.2026
+// (после разбора конкретного объявления, у которого этого поля не было, хотя по фото и
+// описанию «на ключах, можна починати ремонт» это точно такая же сырая новостройка)
+// покупатель попросил расширить: любая новостройка без отделки уходит в «чистовая от
+// застройщика», а не выбрасывается — независимо от того, подтверждает ли OLX продавца
+// как самого застройщика. Кто именно продаёт (сам застройщик или перекупщик) карточка
+// больше не проверяет — см. оговорку в подсказке на карточке и в README.
+const primaryMarketOf = p => p['apartments_object_type:key'] === 'primary_market';
+
+function finish(u) {
+  // координаты → км до города → область → индекс
+  const c = coordsFor(u);
+  if (c) { u.lat = c.lat; u.lon = c.lon; u.geoSrc = c.src; }
+  if (u.lat && u.lon) {
+    const n = L.nearestCity(u.lat, u.lon);
+    u.km = n.km; u.city = n.city;
+    if (!u.obl) u.obl = L.oblastOf(u.lat, u.lon, shapes);
+  }
+  u.ppm = u.ppm || (u.price && u.area ? Math.round(u.price / u.area) : null);
+  u.quality = u.kind === 'house' ? L.houseQuality9(u) : L.flatQuality9(u);
+  markNew(u);
+  return u;
+}
+// базовые ворота для всех источников
+function gate(u) {
+  if (DEAD.has(u.id)) { drop.dead++; return false; }
+  if (EXCLUDED.has(u.id)) { drop.excluded++; return false; }
+  if (u.obl === 'zak' || u.obl == null && u.region === 'Закарпатська область') { drop.zak++; return false; }
+  // восток: точка лота должна лежать в контуре одной из трёх областей каталога
+  if (u.lat != null && !L.oblastOf(u.lat, u.lon, shapes) && !PINNED.has(u.id)) { drop.outside = (drop.outside || 0) + 1; return false; }
+  if (PINNED.has(u.id)) { pinnedKept++; return true; }        // разобранное избранное держим всегда
+  if (u.lat == null || u.km == null) { drop.nogeo++; return false; }
+  // Facebook — без предела 10 км (правило покупателя 21.10.2026: «фильтр 10 можешь откинуть»):
+  // и группа «Будиночок у селі», и Marketplace — это в основном дома в сёлах
+  if (u.km > KM_MAX && u.src !== 'fb') { drop.far++; return false; }
+  return true;
+}
+
+/* ════════ 1. дома OLX (свежий сбор по 9 областям) ════════ */
+const housesPool = Object.values(rdLots(D + 'olx9-houses.json').items).map(x => {
+  const p = x.params || {};
+  return {
+    id: x.id, sku: x.sku, src: 'olx', kind: 'house', title: x.title, link: x.link,
+    price: usdOf(x), cur: 'USD',
+    area: num(p['total_area:key']), land: num(p['land_area:key']), rooms: num(p.number_of_rooms),
+    floors: num(p['total_floors:key']),
+    heating: p.heating || null, repair: p.repair || null, walls: p.house_type || null,
+    comm: p.communications || null, bathroom: p.bathroom_3 || null, propType: p['property_type_houses:key'] || null,
+    noCommission: /без комісії/i.test(p.commission || ''),
+    loc: x.loc, cityId: x.cityId, region: x.region, obl: L.REGION2SLUG[x.region] || null,
+    lat: x.lat, lon: x.lon, created: x.created, days: daysSince(x.created),
+    photos: x.photos || [], photoUrl: (x.photos || [])[0] || null, desc: x.desc, business: x.business,
+  };
+});
+const housesCand = [];
+const housesOlx = [];
+for (const u of housesPool) {
+  if (!L.inBudgetKind(u.price, 'house')) { drop.budget++; continue; }
+  if ((u.area || 0) < 65) { drop.small++; continue; }
+  if (['dacha', 'garden_house'].includes(u.propType || '')) { drop.badtype++; continue; }
+  if (L.SHARE.test((u.title || '') + ' ' + String(u.desc || '').slice(0, 260))) { drop.share++; continue; }
+  if (L.UNFIN.test(u.desc || '') || L.UNFIN.test(u.title || '')) { drop.unfin++; continue; }
+  finish(u);
+  if (!gate(u)) continue;
+  const verdict = vet[u.id] || (legacyVetted.has(u.id) ? 'ok' : null);
+  if (PINNED.has(u.id) || verdict === 'ok') housesOlx.push(u);
+  else if (verdict !== 'no') housesCand.push(u); // ждёт фотопроверки
+  else drop.unvetted++;
+}
+
+/* ════════ 2. квартиры OLX (свежий сбор) ════════ */
+const ROOMS = { odnokomnatnye: 1, dvuhkomnatnye: 2, trehkomnatnye: 3, tryohkomnatnye: 3, chetyryohkomnatnye: 4, pyatikomnatnye: 5, shestikomnatnye: 6 };
+const flatsOlx = [];
+for (const x of Object.values(rdLots(D + 'olx9-flats.json').items)) {
+  const p = x.params || {};
+  const u = {
+    id: x.id, sku: x.sku, src: 'olx', kind: 'flat', title: x.title, link: x.link,
+    price: usdOf(x), cur: 'USD',
+    area: num(p['total_area:key']), rooms: ROOMS[p['number_of_rooms_string:key']] || num(p.number_of_rooms_string) || null,
+    floor: num(p['floor:key'] || p.floor), floors: num(p['total_floors:key'] || p.total_floors),
+    repair: p.repair || null, market: p.apartments_object_type || null, houseType: p.property_type_appartments_sale || null,
+    isNew: /новобудова/i.test(p.apartments_object_type || ''),
+    primaryMarket: primaryMarketOf(p),
+    walls: p.house_type || null, heating: p.heating || null, bathroom: p.bathroom || null, comm: p.communications || null,
+    noCommission: /без комісії/i.test(p.commission || ''),
+    loc: x.loc, cityId: x.cityId, region: x.region, obl: L.REGION2SLUG[x.region] || null,
+    lat: x.lat, lon: x.lon, created: x.created, days: daysSince(x.created),
+    photos: x.photos || [], photoUrl: (x.photos || [])[0] || null, desc: x.desc, business: x.business,
+  };
+  if (!L.inBudget(u.price)) { drop.budget++; continue; }
+  if ((u.area || 0) < 50 || (u.rooms || 0) < 2) { drop.small++; continue; }
+  // Новобудова больше не выбрасывается из «готового» (03.09.2026, просьба покупателя:
+  // новостройка в приоритете). Раньше метка «Новобудова» отсекала квартиру независимо
+  // от фактического состояния, и 143 лота проваливались мимо обоих наборов: в готовое
+  // не пускала метка, в получистовую — отсутствие текстового признака недостроя.
+  // Состояние решают те же правила, что и у всех: поле «Ремонт» и текст объявления.
+  if (L.BAD_REPAIR.test(u.repair || '')) {
+    // Чистовая — всё под ремонт целиком — с 13.09.2026 отдельный третий список, и туда
+    // идёт любая такая квартира, а не только «Первинний ринок» от застройщика
+    // (правило покупателя: в каталог попадают все квартиры, состояние решает список).
+    finish(u);
+    if (gate(u)) pushRaw(u, u.primaryMarket ? 'devnew' : 'shell');
+    drop.unfin++; continue;
+  }
+  if (L.BAD_TEXT.test((u.title || '') + ' ' + (u.desc || ''))) { drop.unfin++; continue; }
+  if (L.SHARE.test((u.title || '') + ' ' + String(u.desc || '').slice(0, 260))) { drop.share++; continue; }
+  finish(u);
+  if (!gate(u)) continue;
+  flatsOlx.push(u);
+}
+
+/* ════════ 3. ЛУН: старый сбор (запад) + новый (Хм/Жит/Вин, если есть) ════════ */
+const GROUP2OBL = {
+  'Львів': 'lv', 'Івано-Франківськ': 'if', 'Тернопіль': 'ter', 'Рівне': 'rov', 'Луцьк': 'vol',
+  'Чернівці': 'chv', 'Ужгород': 'zak', 'Хмельницький': 'khm', 'Житомир': 'zht', 'Вінниця': 'vin',
+  'Київ': 'kyi', 'Дніпро': 'dnp', 'Кропивницький': 'kir',
+};
+const geoLun = ex(D5 + 'geocode-lun.json') ? rd(D5 + 'geocode-lun.json') : {};
+const geoLun9 = ex(D + 'lun9-geocode.json') ? rd(D + 'lun9-geocode.json') : {};
+const lunDet = ex(D5 + 'lun-details.json') ? rd(D5 + 'lun-details.json') : {};
+const lunAll = [];
+function shapeLun(x) {
+  const g = geoLun[[x.loc || '', x.district || '', x.cityGroup || ''].join('|')] ||
+    geoLun9[(x.loc || x.cityGroup) + '|' + x.cityGroup] || null;
+  return {
+    id: x.id, src: 'lun', srcSite: x.srcSite || null, kind: x.kind, title: x.title, link: x.link,
+    price: x.price, area: x.area, land: x.landSot, rooms: x.rooms,
+    ppm: x.ppm || null, loc: x.loc || (x.district || '').replace(/ район$/, ''), region: x.district,
+    obl: GROUP2OBL[x.cityGroup] || null,
+    lat: g ? +g.lat : null, lon: g ? +g.lon : null, created: null, days: null,
+    repair: null, heating: null, photoUrl: (x.photos || [])[0] || null, photos: x.photos || [],
+    noCommission: !!x.noCommission, desc: x.desc,
+  };
+}
+const lunClean = [...(ex(D5 + 'lun-clean.json') ? rdLots(D5 + 'lun-clean.json') : []), ...(ex(D + 'lun9-clean.json') ? rdLots(D + 'lun9-clean.json') : [])];
+for (const x of lunClean) {
+  if (x.unfinished || !L.inBudgetKind(x.price, x.kind)) continue;
+  const u = shapeLun(x);
+  const d = lunDet[u.id] || (ex(D + 'lun9-details.json') ? (rd(D + 'lun9-details.json')[u.id] || null) : null);
+  if (d && !d.error) {
+    if (num(d.area)) u.area = num(d.area);
+    if (num(d.rooms)) u.rooms = num(d.rooms);
+    if (num(d.land)) u.land = num(d.land);
+    if (num(d.floor)) u.floor = num(d.floor);
+    if (num(d.floors)) u.floors = num(d.floors);
+    if (d.walls) u.walls = d.walls;
+    if (d.heating) u.heating = d.heating;
+    if (d.locality && !u.loc) u.loc = d.locality;
+    if ((d.photos || []).length) { u.photos = d.photos; u.photoUrl = d.photos[0]; }
+    if (d.desc) u.desc = ((u.desc || '') + ' ' + d.desc).slice(0, 1200);
+    u.gone = !!d.gone;
+  }
+  if (u.gone) continue;
+  if (u.kind === 'house' && (u.area || 0) < 65) continue;
+  if (u.kind === 'flat' && ((u.area || 0) < 50 || ((u.rooms || 0) < 2 && u.rooms != null))) continue;
+  if (L.UNFIN.test(u.desc || '')) { drop.unfin++; continue; }
+  if (L.SHARE.test((u.title || '') + ' ' + String(u.desc || '').slice(0, 260))) { drop.share++; continue; }
+  finish(u);
+  if (!gate(u)) continue;
+  if (u.obl === 'zak') { drop.zak++; continue; }
+  lunAll.push(u);
+}
+
+/* ════════ 4. Телеграм и Фейсбук ════════ */
+const OBL_ZONE = { 'Киевщина': 'kyi', 'Днепропетровщина': 'dnp', 'Кировоградщина': 'kir' };
+const ZONE_REGION = { kyi: 'Київська область', dnp: 'Дніпропетровська область', kir: 'Кіровоградська область' };
+function loadExt(file, src, geoFile, dir) {
+  if (!ex(dir + file)) return [];
+  const geo = geoFile && ex(dir + geoFile) ? rd(dir + geoFile) : {};
+  return rdLots(dir + file).map(r => {
+    const g = r.lat != null ? { lat: r.lat, lon: r.lon } : (geo[r.loc + '|' + r.zone] || null);
+    const obl = OBL_ZONE[r.zone] || null;
+    return {
+      id: r.id, src, kind: r.kind, title: r.title, link: r.url,
+      price: r.price, area: r.area || null, land: r.land || null, rooms: r.rooms || null,
+      floor: r.floor || null, floors: r.floors || null,
+      loc: r.loc, region: ZONE_REGION[obl] || r.zone, obl,
+      lat: g ? +g.lat : null, lon: g ? +g.lon : null,
+      created: r.date ? r.date + 'T12:00:00+03:00' : null, days: daysSince(r.date ? r.date + 'T12:00:00+03:00' : null),
+      photoUrl: (r.photoList || [])[0] || null, photos: r.photoList || [],
+      noCommission: false, desc: r.text || '', locExact: !!r.locExact, chan: r.ch || null,
+      developer: r.developer || null, term: r.term || null,
+    };
+  }).filter(u => L.inBudgetKind(u.price, u.kind));
+}
+const tgAll = [...loadExt('tme-candidates.json', 'tg', 'tg-geocode.json', EXT), ...loadExt('tg9-candidates.json', 'tg', 'tg9-geocode.json', D)]
+  .map(finish).filter(gate);
+// fb9-candidates.json — посты групп Facebook о продаже домов (группа «Будиночок у селі»,
+// 20.10.2026, scripts/fb9-group.js): только с явной ценой в тексте;
+// fbm9-candidates.json — Facebook Marketplace (21.10.2026, scripts/fb9-market.js): поиск
+// домов вокруг каждого города девяти областей, карточки открываются по очереди
+const fbAll = [...loadExt('fb-candidates.json', 'fb', null, EXT), ...loadExt('fb9-candidates.json', 'fb', null, D),
+  ...loadExt('fbm9-candidates.json', 'fb', null, D)]
+  .map(finish).filter(gate);
+// Rieltor.ua отдаёт координаты прямо в карточке поиска; Metrazh координат не даёт —
+// сборщик (metrazh9.js) сам подставляет центр города поиска в r.lat/r.lon, поэтому
+// geoFile обоим не нужен. addr9.js на следующем прогоне уточнит точку у Metrazh по
+// улице из заголовка/описания — так же, как у OLX.
+const rielAll = loadExt('rieltor9-candidates.json', 'riel', null, D).map(finish).filter(gate);
+const metrAll = loadExt('metrazh9-candidates.json', 'metr', null, D).map(finish).filter(gate);
+// dom.ria.com и flatfy.ua (добавлены 08.09.2026, просьба покупателя «нашёл ещё 2 сайта,
+// собери из них тоже»). Оба заведены тем же способом, что Rieltor/Metrazh — координаты
+// уже в карточке источника (geoFile не нужен), бюджет/площадь/комнаты/текстовые фильтры
+// (UNFIN/SHARE/BAD_TEXT) применены ещё в самом сборщике, поэтому в «получистовую» эти
+// источники не попадают, как и Rieltor/Metrazh, — только в готовое.
+// flatfy.ua — метапоиск группы LUN, не своя база: контрольная выборка показала, что
+// подавляющее большинство карточек — зеркала rieltor.ua/olx.ua/lun.ua/dom.ria.com,
+// уже присутствующих в каталоге под своим именем. Такие зеркала сборщик (flatfy9.js)
+// выбрасывает по полю site.name сам, до записи в data/flatfy9-candidates.json.
+const domriaAll = loadExt('domria9-candidates.json', 'domria', null, D).map(finish).filter(gate);
+const flatfyAll = loadExt('flatfy9-candidates.json', 'flatfy', null, D).map(finish).filter(gate);
+
+/* ════════ 4c. наследство: лоты, чьи исходники жили в scratchpad прежних сессий ════════
+   ЛУН и Телеграм запада, Facebook Marketplace (сессии 5e19b764 и 7f7d4dba) — Temp вычищен
+   к 20.10.2026, и без этих файлов пересборка молча выбросила бы 134 лота, а их места заняли
+   бы другие. Лоты сохранены уже разобранными из сборки 19.09.2026 (data/legacy-ext9.json):
+   повторно проходят ворота (снятые, исключённые, до 10 км) и конкурируют в своём наборе
+   как раньше. Если исходник появится снова, свежая версия лота главнее. */
+const legacyExt = ex(D + 'legacy-ext9.json') ? rd(D + 'legacy-ext9.json') : [];
+const legacySemi = [];
+{
+  const fresh = new Set([...lunAll, ...tgAll, ...fbAll].map(u => u.id));
+  const into = { lun: lunAll, tg: tgAll, fb: fbAll };
+  for (const u of legacyExt) {
+    if (fresh.has(u.id) || !into[u.src] || !gate(u)) continue;
+    if (u.ready === 'raw') pushRaw(u, u.semi);
+    else if (u.ready === 'semi') legacySemi.push(u);
+    else into[u.src].push(u);
+  }
+}
+
+/* ════════ 5. топ-50 на область в каждом наборе источник×тип (готовое) ════════ */
+// Из перепостов одного объекта остаётся тот, что стоял в прошлой сборке (units9.json до
+// перезаписи этим прогоном), и только среди новых — лучший по индексу. Раньше выигрывал лучший
+// по индексу всегда, и уточнение адреса (20.10.2026) поменяло победителя у пяти объектов:
+// объект оставался, но под другим ID — а избранное, заметки и корзина покупателя привязаны
+// к ID карточки. («Раньше появился в каталоге» по first-seen.json не годится: так выигрывали
+// перепосты, давно выпавшие из каталога.)
+const PREV = new Set();
+if (ex(D + 'units9.json')) { const p = rd(D + 'units9.json'); for (const k of ['units', 'semi', 'raw']) for (const u of p[k] || []) PREV.add(u.id); }
+function dedupe(arr) {
+  const best = new Map();
+  for (const u of arr.sort((a, b) => b.quality - a.quality)) {
+    // Этаж и этажность обязательны в ключе: без них в городе с новостройками
+    // схлопывались РАЗНЫЕ квартиры. 13.09.2026 так пропала квартира на 5/10 в кирпичном
+    // доме — её принял за дубль лот на 9/14 в монолитном, потому что совпали только
+    // цена, площадь и город. Настоящий перепост одного объекта совпадает и по этажу.
+    // У домов то же самое делает участок: 20.10.2026 в Хмельницком склеились два разных
+    // дома одного агентства по $37 000 и 68 м² — у одного 3 сотки у озера, у другого 12 у леса.
+    const k = [u.kind, u.price, Math.round(u.area || 0), (u.loc || '').toLowerCase(),
+      u.floor || '', u.floors || '', u.kind === 'house' ? Math.round((u.land || 0) * 10) : ''].join('|');
+    const cur = best.get(k);
+    if (!cur) { best.set(k, u); continue; }
+    if (PREV.has(u.id) && !PREV.has(cur.id)) best.set(k, u);
+  }
+  return [...best.values()].sort((a, b) => b.quality - a.quality);
+}
+// раскладка по областям и обрезка до TOP; setKey — подпись набора, prefix — 'semi:' для получистовой.
+// Дома — отдельный ярус на каждую полосу цены внутри области («<обл>~p20» … «<обл>~p40»):
+// лоты полосы делят между собой только свою сотню и не занимают мест соседних полос.
+// Квартиры — одним ярусом на весь бюджет $30–45 тыс., как раньше.
+function pickTop(sets, out, stats, prefix) {
+  for (const [key, arr] of Object.entries(sets)) {
+    const byObl = {};
+    for (const u of arr) {
+      const o = (u.obl || 'unk') + (u.kind === 'house' ? '~' + (L.bandOf(u.price) || 'out') : '');
+      (byObl[o] = byObl[o] || []).push(u);
+    }
+    const parts = [];
+    for (const [ok, list] of Object.entries(byObl)) {
+      const [o, band] = ok.split('~');
+      if (o === 'unk' || o === 'zak') continue;
+      // новостройки идут первыми и внутри себя по индексу — они не должны вылетать
+      // из топ-50 под давлением вторички (просьба покупателя 03.09.2026)
+      list.sort((a, b) => (b.isNew ? 1 : 0) - (a.isNew ? 1 : 0) || b.quality - a.quality);
+      const top = key.endsWith('|flat') ? TOP_FLAT : TOP;
+      list.slice(0, top).forEach((u, i) => { u.rankIn = i + 1; u.setKey = (prefix || '') + key + (band ? '~' + band : ''); out.push(u); });
+      parts.push(ok + ':' + Math.min(list.length, top));
+    }
+    stats.push(((prefix || '') + key).padEnd(15) + ' ' + parts.sort().join(' '));
+  }
+}
+/* ════════ 4b. новострой — только с живыми фото готового жилья ════════
+   Правило покупателя 03.09.2026: «новострой чистовая — мы его игнорим, а новострой
+   в приоритете — это самое лучшее». Раз новострой встаёт первым в каталоге, метка
+   должна означать готовое жильё, а не коробку.
+
+   Текстом это не отличить: у типовой новостройки «под чистову» поле «Ремонт» пустое,
+   слов «без ремонту» в описании нет, а бывает и наоборот — «квартира вже на ключах».
+   Единственный источник правды — фотографии, поэтому каждая новостройка проходит
+   ту же фотопроверку, что и дома OLX, и попадает в готовое только с вердиктом ok.
+
+   Вердикт ok — на фото жилой интерьер: пол, обои или краска, двери, кухня, мебель.
+   Вердикт no — бетон, стяжка и штукатурка; только планировка; только рендер
+   застройщика; только фасад или двор. Фото нет вовсе — тоже no: проверить нечем. */
+const nbCand = [];        // ждут фотопроверки (вердикт уточняет категорию, но лот уже в каталоге)
+function nbPass(u) {
+  if (!u.isNew) return true;
+  if (PINNED.has(u.id)) return true;                       // разобранное избранное держим всегда
+  const verdict = vet[u.id] || (legacyVetted.has(u.id) ? 'ok' : null);
+  if (verdict === 'ok') return true;
+  if (verdict === 'no') {
+    // На фото бетон, стяжка, план или рендер — жить нельзя, но это не повод выбрасывать:
+    // такой лот и есть «чистовая» (правило покупателя 13.09.2026 — в каталог идут все
+    // квартиры, а состояние решает, в какой из трёх списков лот попадёт).
+    pushRaw(u, 'shell'); drop.nbShell++; return false;
+  }
+  // непроверенных больше не держим за воротами: ставим в очередь на фотопроверку,
+  // но в каталоге лот уже есть — вердикт потом переложит его в нужный список
+  if ((u.photos || []).length) nbCand.push(u);
+  return true;
+}
+// Черновой стан — не готовое жильё (правило покупателя: чистовая — отдельный третий список).
+// Слова продавца в тексте (isRough в lib9.js) или поле OLX «Ремонт» у дома: фотопроверка домов
+// смотрит первый кадр, обычно фасад, и коробку «після будівельників» за ним не видит.
+function notRough(u) {
+  if (PINNED.has(u.id)) return true;
+  const rep = u.src === 'olx' && u.kind === 'house' && /після будівельник|під чистову/i.test(u.repair || '');
+  if (!rep && !L.isRough((u.title || '') + ' ' + (u.desc || ''))) return true;
+  pushRaw(u, 'shell'); drop.rough = (drop.rough || 0) + 1;
+  return false;
+}
+// Facebook: фотопроверка глазами (photo-vet.json). «shell» — на фото коробка без отделки:
+// это не готовое, а «чистовая» (третий список, правило 13.09.2026 — ничего не выбрасываем).
+// «no» (на фото не жильё — план, участок) отсеивают ещё fb9-parse.js / fb9-market-parse.js.
+function fbShell(u) {
+  if (u.src !== 'fb' || vet[u.id] !== 'shell' || PINNED.has(u.id)) return true;
+  pushRaw(u, 'shell'); drop.fbShell = (drop.fbShell || 0) + 1;
+  return false;
+}
+const sets = {
+  'olx|house': dedupe(housesOlx.filter(nbPass).filter(notRough)), 'olx|flat': dedupe(flatsOlx.filter(nbPass).filter(notRough)),
+  'lun|house': dedupe(lunAll.filter(u => u.kind === 'house').filter(nbPass).filter(notRough)), 'lun|flat': dedupe(lunAll.filter(u => u.kind === 'flat').filter(nbPass).filter(notRough)),
+  'tg|house': dedupe(tgAll.filter(u => u.kind === 'house').filter(nbPass).filter(notRough)), 'tg|flat': dedupe(tgAll.filter(u => u.kind === 'flat').filter(nbPass).filter(notRough)),
+  'fb|house': dedupe(fbAll.filter(u => u.kind === 'house').filter(fbShell).filter(nbPass).filter(notRough)), 'fb|flat': dedupe(fbAll.filter(u => u.kind === 'flat').filter(nbPass).filter(notRough)),
+  'riel|house': dedupe(rielAll.filter(u => u.kind === 'house').filter(nbPass).filter(notRough)), 'riel|flat': dedupe(rielAll.filter(u => u.kind === 'flat').filter(nbPass).filter(notRough)),
+  'metr|house': dedupe(metrAll.filter(u => u.kind === 'house').filter(nbPass).filter(notRough)), 'metr|flat': dedupe(metrAll.filter(u => u.kind === 'flat').filter(nbPass).filter(notRough)),
+  'domria|house': dedupe(domriaAll.filter(u => u.kind === 'house').filter(nbPass).filter(notRough)), 'domria|flat': dedupe(domriaAll.filter(u => u.kind === 'flat').filter(nbPass).filter(notRough)),
+  'flatfy|house': dedupe(flatfyAll.filter(u => u.kind === 'house').filter(nbPass).filter(notRough)), 'flatfy|flat': dedupe(flatfyAll.filter(u => u.kind === 'flat').filter(nbPass).filter(notRough)),
+};
+const units = [];
+const setStats = [];
+pickTop(sets, units, setStats, '');
+const readyIds = new Set(units.map(u => u.id));
+
+/* ════════ 6. получистовая — отдельный набор по тем же правилам (просьба покупателя
+   02.09.2026: не конкурирует с готовым за места, но строится по аналогии — топ-50 на
+   область по домам и квартирам в каждом источнике, ≤10 км, близость к городу ×2).
+   Кандидаты: то, что готовый отбор отбросил по состоянию (текст «недобудова / під
+   чистову / потребує ремонту», параметр «Ремонт», фотопроверка «не жилой дом»),
+   плюс перенесённые с прежней страницы карточки. ════════ */
+const semiDrop = { noclass: 0, ready: 0, budget: 0, small: 0, badtype: 0, share: 0, gate: 0, vetOkReady: 0 };
+const semiCand = [];
+const seenSemi = new Set();
+const liveById = {};
+const semiLive = rdLots(D + 'live-semi.json');
+for (const s of semiLive) liveById[s.id] = s;
+// доля объекта — не берём; но «частина будинку придатна, інша — потребує» — это наш класс part
+const shareSemi = u => L.SHARE.test((u.title || '') + ' ' + String(u.desc || '').slice(0, 100)) && !L.SEMI_TXT.part.test(u.desc || '');
+// «Получистовая» — это жильё, в которое можно заселиться и доводить ремонт
+// (правило покупателя 03.09.2026). Коробка под чистовую — не получистовая: заехать
+// в неё нельзя. Но и не мусор — с 13.09.2026 она уходит в третий список, «чистовая»
+// (всё под ремонт целиком), а не выбрасывается из каталога.
+function pushSemi(u, cls) {
+  if (cls === 'shell') { pushRaw(u, 'shell'); return; }
+  // новострой без фотопроверки не должен просочиться сюда через второй проход:
+  // бейдж «НОВОСТРОЙ» и приоритет действуют в обоих списках
+  if (nbHold.has(u.id)) { semiDrop.nbHold = (semiDrop.nbHold || 0) + 1; return; }
+  // Бейдж «НОВОСТРОЙ» значит «проверенное готовое жильё, идёт первым». В получистовой
+  // лот по определению недоделан, поэтому признак снимается: иначе первым в каталоге
+  // встаёт новострой под чистову — ровно то, что покупатель просил игнорировать.
+  u.isNew = false;
+  if (seenSemi.has(u.id)) return;
+  u.ready = 'semi'; u.semi = cls;
+  u.quality = u.kind === 'house' ? L.semiHouseQuality9(u) : L.semiFlatQuality9(u);
+  seenSemi.add(u.id); semiCand.push(u);
+}
+// 6a. дома и квартиры OLX из свежего сбора
+for (const u of housesPool) {
+  if (readyIds.has(u.id)) { semiDrop.ready++; continue; }
+  if (!L.inBudgetKind(u.price, 'house')) { semiDrop.budget++; continue; }
+  if ((u.area || 0) < 65) { semiDrop.small++; continue; }
+  if (['dacha', 'garden_house'].includes(u.propType || '')) { semiDrop.badtype++; continue; }
+  if (shareSemi(u)) { semiDrop.share++; continue; }
+  if (vet[u.id] === 'ok') { semiDrop.vetOkReady++; continue; }          // на фото жилой дом — это кандидат в готовое
+  let cls = liveById[u.id] ? (liveById[u.id].attrs.semi || null) : null;  // класс с прежней страницы надёжнее регэкспа
+  if (!cls) cls = L.semiClass(u);
+  // «жилая, ремонт постепенно», но на фото голые стены — это не получистовая, а чистовая
+  if (cls === 'repair' && vet[u.id] === 'no') cls = 'shell';
+  if (!cls) { semiDrop.noclass++; continue; }
+  if (u.km == null) finish(u);
+  if (!gate(u)) { semiDrop.gate++; continue; }
+  pushSemi(u, cls);
+}
+for (const x of Object.values(rdLots(D + 'olx9-flats.json').items)) {
+  if (readyIds.has(x.id)) { semiDrop.ready++; continue; }
+  const p = x.params || {};
+  const u = {
+    id: x.id, sku: x.sku, src: 'olx', kind: 'flat', title: x.title, link: x.link,
+    price: usdOf(x), cur: 'USD',
+    area: num(p['total_area:key']), rooms: ROOMS[p['number_of_rooms_string:key']] || num(p.number_of_rooms_string) || null,
+    floor: num(p['floor:key'] || p.floor), floors: num(p['total_floors:key'] || p.total_floors),
+    repair: p.repair || null, market: p.apartments_object_type || null, houseType: p.property_type_appartments_sale || null,
+    isNew: /новобудова/i.test(p.apartments_object_type || ''),
+    walls: p.house_type || null, heating: p.heating || null, bathroom: p.bathroom || null, comm: p.communications || null,
+    noCommission: /без комісії/i.test(p.commission || ''),
+    loc: x.loc, cityId: x.cityId, region: x.region, obl: L.REGION2SLUG[x.region] || null,
+    lat: x.lat, lon: x.lon, created: x.created, days: daysSince(x.created),
+    photos: x.photos || [], photoUrl: (x.photos || [])[0] || null, desc: x.desc, business: x.business,
+  };
+  if (!L.inBudget(u.price)) { semiDrop.budget++; continue; }
+  if ((u.area || 0) < 50 || (u.rooms || 0) < 2) { semiDrop.small++; continue; }
+  if (shareSemi(u)) { semiDrop.share++; continue; }
+  const cls = (liveById[u.id] && liveById[u.id].attrs.semi) || L.semiClass(u);
+  if (!cls) { semiDrop.noclass++; continue; }
+  finish(u);
+  if (!gate(u)) { semiDrop.gate++; continue; }
+  pushSemi(u, cls);
+}
+// 6b. ЛУН: лоты с флагом unfinished из нормализатора
+for (const x of lunClean) {
+  if (!x.unfinished || !L.inBudgetKind(x.price, x.kind)) continue;
+  if (readyIds.has(x.id)) continue;
+  const u = shapeLun(x);
+  const d = lunDet[u.id] || (ex(D + 'lun9-details.json') ? (rd(D + 'lun9-details.json')[u.id] || null) : null);
+  if (d && !d.error) {
+    if (num(d.area)) u.area = num(d.area);
+    if (num(d.rooms)) u.rooms = num(d.rooms);
+    if (num(d.land)) u.land = num(d.land);
+    if (num(d.floor)) u.floor = num(d.floor);
+    if (num(d.floors)) u.floors = num(d.floors);
+    if ((d.photos || []).length) { u.photos = d.photos; u.photoUrl = d.photos[0]; }
+    if (d.desc) u.desc = ((u.desc || '') + ' ' + d.desc).slice(0, 1200);
+    if (d.gone) continue;
+  }
+  if (u.kind === 'house' && (u.area || 0) < 65) { semiDrop.small++; continue; }
+  if (u.kind === 'flat' && ((u.area || 0) < 50 || ((u.rooms || 0) < 2 && u.rooms != null))) { semiDrop.small++; continue; }
+  if (shareSemi(u)) { semiDrop.share++; continue; }
+  const cls = L.semiClass(u) || (u.kind === 'flat' || L.SEMI_TXT.util.test(u.desc || '') ? 'shell' : null);
+  if (!cls) { semiDrop.noclass++; continue; }
+  finish(u);
+  if (!gate(u) || u.obl === 'zak') { semiDrop.gate++; continue; }
+  pushSemi(u, cls);
+}
+// 6c. перенесённые карточки прежней страницы, которых нет в свежем сборе
+// (с 03.09.2026 к ним применяется тот же бюджет: нижняя граница поднята до $30 тыс.)
+let liveKept = 0;
+for (const s of semiLive) {
+  if (seenSemi.has(s.id) || readyIds.has(s.id)) continue;
+  const a = s.attrs;
+  if (DEAD.has(s.id)) { drop.dead++; continue; }
+  if (EXCLUDED.has(s.id)) { drop.excluded++; continue; }
+  if (!L.inBudget(+a.price)) { semiDrop.budget++; continue; }
+  const km = a.km === '' || a.km == null ? null : +a.km;
+  if (km == null || km > KM_MAX) { drop.far++; continue; }
+  const obl = L.oblastOf(s.lat, s.lon, shapes);
+  if (obl === 'zak') { drop.zak++; continue; }
+  const h = s.html;
+  const img = (h.match(/<img src="(https:[^"]+)"/) || [])[1] || null;
+  const u = {
+    id: s.id, src: a.src || 'olx', kind: a.kind || 'house',
+    title: (h.match(/rel="noopener">([^<]+)<\/a>/) || [])[1] || '', link: (h.match(/href="([^"]+)"/) || [])[1] || '',
+    price: +a.price, km, obl, lat: s.lat, lon: s.lon, loc: s.loc,
+    city: ((h.match(/<i>до ([^<]+)<\/i>/) || [])[1] || '').trim() || null,
+    area: a.area ? +a.area : null, land: a.land ? +a.land : null, ppm: a.ppm ? +a.ppm : null,
+    days: a.days ? +a.days : null, created: a.created ? a.created + 'T12:00:00+03:00' : null,
+    photos: img ? [img] : [], photoUrl: img, noCommission: false, fromLive: true,
+  };
+  if (!u.city) { const n = L.nearestCity(u.lat, u.lon); u.city = n.city; }
+  pushSemi(u, a.semi || 'unfin');
+  liveKept++;
+}
+// 6c2. LUN застройщик: чистова напрямую от доверенного застройщика (просьба покупателя
+// 07.09.2026 — «добавь ещё варианты, чистовые квартиры от проверенного застройщика»).
+// Бюджет и доверие к застройщику (год основания + сдано/в процессе домов на LUN) уже
+// отфильтрованы в scripts/lun-nb9.js — здесь только гео-ворота и топ-50, как у всех.
+// С 08.09.2026 это отдельная категория «чистовая от застройщика» (см. pushRaw выше), а не
+// часть получистовой: жить там нельзя вообще, в отличие от получистовой, куда можно заехать.
+const lunnbAll = loadExt('lun-nb9-candidates.json', 'lunnb', null, D).map(finish).filter(gate);
+for (const u of lunnbAll) pushRaw(u, 'devnew');
+for (const u of legacySemi) if (!readyIds.has(u.id)) pushSemi(u, u.semi);   // наследство (секция 4c)
+// 6d. топ-50 на область в каждом наборе источник×тип — как у готового
+const semiSets = {};
+for (const u of dedupe(semiCand)) {
+  const k = u.src + '|' + u.kind;
+  (semiSets[k] = semiSets[k] || []).push(u);
+}
+const semi = [];
+pickTop(semiSets, semi, setStats, 'semi:');
+// 6e. «чистовая от застройщика» — топ-50 на область в каждом наборе источник×тип, той же формы,
+// что готовое и получистовая (просьба покупателя 08.09.2026: отдельная третья категория,
+// не конкурирует за места ни с готовым, ни с получистовой)
+const rawSets = {};
+for (const u of dedupe(rawCand)) {
+  const k = u.src + '|' + u.kind;
+  (rawSets[k] = rawSets[k] || []).push(u);
+}
+const raw = [];
+pickTop(rawSets, raw, setStats, 'raw:');
+// «к рынку области»: насколько цена за м² ниже медианы готового жилья того же типа в той же области
+const median = arr => { if (!arr.length) return null; const s = arr.slice().sort((a, b) => a - b); return s.length % 2 ? s[s.length >> 1] : Math.round((s[s.length / 2 - 1] + s[s.length / 2]) / 2); };
+// Медиана — по основному бюджету $30–45 тыс.: дешёвые дома полосы $20–30 тыс. в неё не входят,
+// иначе «к рынку области» у прежних карточек поменялось бы без единого нового факта о них.
+const mainUnits = units.filter(u => L.tierOf(u.price) === 'main');
+const medPpm = {};
+for (const u of mainUnits) if (u.ppm) (medPpm[u.obl + '|' + u.kind] = medPpm[u.obl + '|' + u.kind] || []).push(u.ppm);
+for (const k of Object.keys(medPpm)) medPpm[k] = median(medPpm[k]);
+const medAll = { house: median(mainUnits.filter(u => u.kind === 'house' && u.ppm).map(u => u.ppm)), flat: median(mainUnits.filter(u => u.kind === 'flat' && u.ppm).map(u => u.ppm)) };
+for (const u of [...semi, ...raw]) {
+  const med = medPpm[u.obl + '|' + u.kind] || medAll[u.kind];
+  u.medPpm = med || null;
+  u.disc = med && u.ppm ? Math.round((1 - u.ppm / med) * 100) : null;
+}
+
+/* ════════ 7. один объект в разных источниках ════════ */
+const all = [...units, ...semi, ...raw];
+const norm = s => String(s || '').toLowerCase().replace(/[’'ʼ`]/g, "'").trim();
+for (const u of all) u.dups = [];
+for (let i = 0; i < all.length; i++) {
+  for (let j = i + 1; j < all.length; j++) {
+    const a = all[i], b = all[j];
+    if (a.src === b.src) continue;
+    if (a.kind !== b.kind) continue;
+    if (!a.price || !b.price) continue;
+    const dp = Math.abs(a.price - b.price) / Math.max(a.price, b.price);
+    if (dp > 0.02) continue;
+    const sameLoc = norm(a.loc) && norm(a.loc) === norm(b.loc);
+    const near = a.lat && b.lat && L.hav(a.lat, a.lon, b.lat, b.lon) < 1.2;
+    if (!sameLoc && !near) continue;
+    const aa = a.area, ba = b.area;
+    const areaOk = aa && ba ? Math.abs(aa - ba) / Math.max(aa, ba) <= 0.05 : dp <= 0.005;
+    if (!areaOk) continue;
+    a.dups.push(b.id); b.dups.push(a.id);
+  }
+}
+const dupN = all.filter(u => u.dups.length).length;
+
+fs.writeFileSync(D + 'units9.json', JSON.stringify({ units, semi, raw }));
+fs.writeFileSync(D + 'vet-need.json', JSON.stringify(housesCand.map(u => ({
+  id: u.id, obl: u.obl, quality: u.quality, km: u.km, city: u.city, price: u.price, area: u.area, land: u.land,
+  photos: u.photos.slice(0, 4), title: u.title, link: u.link,
+}))));
+// новостройки без вердикта: фотопроверка «живые фото готового жилья или чистовая»
+fs.writeFileSync(D + 'nb-need.json', JSON.stringify(nbCand.map(u => ({
+  id: u.id, obl: u.obl, src: u.src, kind: u.kind, quality: u.quality, km: u.km, city: u.city,
+  price: u.price, area: u.area, rooms: u.rooms, floor: u.floor, floors: u.floors,
+  photos: (u.photos || []).slice(0, 4), title: u.title, link: u.link,
+})), null, 1));
+
+console.log('отброшено:', JSON.stringify(drop));
+console.log('закреплённых (разбор семьи) оставлено:', pinnedKept);
+setStats.forEach(s => console.log(s));
+const oblCnt = {};
+units.forEach(u => oblCnt[u.obl] = (oblCnt[u.obl] || 0) + 1);
+console.log('готовых лотов:', units.length, 'по областям:', JSON.stringify(oblCnt));
+const bandCnt = (arr, b) => arr.filter(u => u.kind === 'house' && L.bandOf(u.price) === b).reduce((m, u) => { m[u.obl] = (m[u.obl] || 0) + 1; return m; }, {});
+const sumCnt = m => Object.values(m).reduce((a, b) => a + b, 0);
+for (const b of L.PRICE_BANDS) {
+  const r = [units, semi, raw].map(a => bandCnt(a, b.key));
+  console.log(`дома ${b.label}: готовых ${sumCnt(r[0])}`, JSON.stringify(r[0]), `| получистовая ${sumCnt(r[1])} | чистовая ${sumCnt(r[2])}`);
+}
+console.log('получистовая: отбор', JSON.stringify(semiDrop), '| кандидатов', semiCand.length, '| в топах', semi.length, '| с прежней страницы', liveKept);
+const semiCls = {}; semi.forEach(u => semiCls[u.semi] = (semiCls[u.semi] || 0) + 1);
+console.log('получистовая по классам:', JSON.stringify(semiCls));
+console.log('чистовая от застройщика: кандидатов', rawCand.length, '| в топах', raw.length,
+  '| источники', JSON.stringify(raw.reduce((m, u) => { m[u.src] = (m[u.src] || 0) + 1; return m; }, {})));
+console.log('домов OLX ждёт фотопроверки:', housesCand.length, 'из них по областям:',
+  JSON.stringify(housesCand.reduce((m, u) => { m[u.obl] = (m[u.obl] || 0) + 1; return m; }, {})));
+console.log('новострой: в готовом', units.filter(u => u.isNew).length,
+  '| по фото без отделки → «чистовая»', drop.nbShell,
+  '| стоит в очереди на фотопроверку (и при этом уже в каталоге)', nbCand.length);
+console.log('лотов с дублем в другом источнике:', dupN);

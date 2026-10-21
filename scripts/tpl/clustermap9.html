@@ -1,0 +1,603 @@
+<figure class="map">
+<div class="clwrap" id="clwrap">
+  <div class="clstage" id="clstage">
+    <svg id="clsvg" role="img" aria-label="Интерактивная карта: все {{N}} объявлений каталога, кластеры с количеством объявлений, слой населённости, границы крупных городов и подписи городов от 25 тыс. с населением">
+      <defs>
+        <clipPath id="clclip"><rect id="clcliprect" x="1" y="1" width="600" height="500" rx="10"/></clipPath>
+        <radialGradient id="clheat">
+          <stop offset="0%" stop-color="#F2C33C" stop-opacity="0.55"/>
+          <stop offset="55%" stop-color="#F2C33C" stop-opacity="0.24"/>
+          <stop offset="100%" stop-color="#F2C33C" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <g id="clg"></g>
+    </svg>
+    <div class="clbar">
+      <button id="clfs" aria-label="На весь экран" title="На весь экран">⛶</button>
+      <button id="clzin" aria-label="Приблизить" title="Приблизить">+</button>
+      <button id="clzout" aria-label="Отдалить" title="Отдалить">−</button>
+      <button id="clrst" aria-label="Сбросить вид" title="Сбросить вид">⌂</button>
+    </div>
+    <div class="clfav" id="clfav" hidden>★ на карте только избранное</div>
+    <div class="clpop" id="clpop" hidden></div>
+    <div class="clhover" id="clhover" hidden></div>
+    <div class="clhint" id="clhint" hidden></div>
+  </div>
+  <div class="cllegend">
+    <span><i class="lgc">7</i>объявлений в точке — клик приближает</span>
+    <span><i class="lgs"></i>одно объявление — клик открывает карточку: ссылка, ★ избранное, ✕ недоступно, корзина</span>
+    <span><i class="lgstar" style="color:#3FA46C">★</i><i class="lgstar" style="color:#4C82D8">★</i><i class="lgstar">★</i>избранное: 1 зелёная → 2 синяя → 3 золотая</span>
+    <span><i class="lgh"></i>населённость</span>
+    <span><label class="lgindl" title="Промышленные зоны и карьеры из OpenStreetMap: чем краснее и крупнее пятно, тем больше промышленных площадей — видно, где город работает, а не просто существует"><input type="checkbox" id="lgind" checked><i class="lgi"></i>промышленность (OSM)</label></span>
+    <span><label class="lgstrl" title="Куда летели ракеты и дроны за всю войну — по хронике канала «Николаевский Ванёк» (17.04.2022 → сегодня, 40 тыс. постов). Цифра у ракеты — сколько целей шло курсом на это место за войну; чем больше, тем крупнее ракета: 1–7 · 8–24 · 25–59 · 60–199 · 200 и больше. Это оценка снизу: по каждой ночи взята самая большая сообщённая группа, чтобы повторные сообщения об одной группе не удваивали счёт. Где за всю войну не летело ни разу, ракеты нет вовсе. Полная таблица и оговорки — под картой"><input type="checkbox" id="lgstr" checked><svg class="lgrk" width="8" height="8" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1L10.4 6L10.4 12.5L14.4 15L10.1 15L8 13.9L5.9 15L1.6 15L5.6 12.5L5.6 6Z" fill="#E63118"/></svg><svg class="lgrk" width="11" height="11" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1L10.4 6L10.4 12.5L14.4 15L10.1 15L8 13.9L5.9 15L1.6 15L5.6 12.5L5.6 6Z" fill="#EE2510"/></svg><svg class="lgrk" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1L10.4 6L10.4 12.5L14.4 15L10.1 15L8 13.9L5.9 15L1.6 15L5.6 12.5L5.6 6Z" fill="#FF0A00"/></svg>куда летело: цифра — целей за войну</label></span>
+    <span title="На карте подписаны города от 25 тыс. населения — это порог, ниже которого город не считается опорным при отборе. Население стоит у названия, а размер и жирность подписи растут вместе с ним: 25–49 тыс. — базовая, 50–99, 100–249 и от 250 тыс. — крупнее и жирнее. Города меньше 25 тыс. проявляются при увеличении карты"><i class="lgb"></i>города от 25 тыс. · размер = население</span>
+    <span><i class="lgo"></i>границы областей</span>
+  </div>
+</div>
+<figcaption>Точки — жильё каталога ({{N}}). Число на маркере — сколько объявлений в этой точке; приближайте — группы распадаются. <b class="clhow"></b> {{GEOACC}}</figcaption>
+</figure>
+<script>
+(function(){
+const PTS = {{PTS}};
+const CITIES = {{CITIES}};   // [русское имя, широта, долгота, население тыс.] — от 25 тыс., крупные первыми
+// слой населённости: [lat, lon, население в тыс.]
+const HEAT={{HEAT}};
+// промышленные зоны OSM: [lat, lon, км²] — агрегированные ячейки ~4×4 км
+// «Куда летело» — хроника канала «Николаевский Ванёк» за всю войну:
+// [имя, широта, долгота, уровень 1..5, ЦЕЛЕЙ (подписано у ракеты), целей сверху,
+// ночей «на город», ночей всего, эпизодов, взрывов/ПВО, доля ракет %]
+const STR={{STRIKES}};
+const STRM={};   // имя места → строка слоя: подпись города берёт ракету отсюда
+for(const t of STR) STRM[t[0]]=t;
+const IND={{INDUSTRY}};
+const CITYSHAPES={{CITYSHAPES}};
+const OBLASTS={{OBLASTS}};
+const TOUCH = matchMedia('(pointer:coarse)').matches;
+
+// ── проекция: линейная по долготе, с поправкой 1.52 по широте (широта ~49°)
+// границы — три области востока: Киевщина, Днепропетровщина, Кировоградщина
+const LON0=29.05, LON1=36.95, LAT1=51.62, LAT0=47.35;
+// готовые path границ городов лежат в старой системе координат: X=(lon-21.9)*123.3+20, Y=(51.15-lat)*187.5+20
+const OLDK=123.3, OLDKY=187.5, KY=OLDKY/OLDK;
+const CW=LON1-LON0, CH=(LAT1-LAT0)*KY;
+
+const svg=document.getElementById('clsvg'), g=document.getElementById('clg');
+const stage=document.getElementById('clstage'), wrap=document.getElementById('clwrap');
+const pop=document.getElementById('clpop'), hov=document.getElementById('clhover'), hint=document.getElementById('clhint');
+const clipR=document.getElementById('clcliprect');
+let W=600,H=500,b=110,ox=0,oy=0,A=0,B=0,k=1,s=1,tx=0,ty=0,clusters=[];
+const wx=lon=>ox+(lon-LON0)*b, wy=lat=>oy+(LAT1-lat)*KY*b;
+
+// контуры областей — рисуются под слоем населённости, чтобы было понятно, где что
+let oblHTML='';
+for(const o of OBLASTS){
+  oblHTML+='<path d="'+o.path+'" fill="none" stroke="var(--muted)" stroke-opacity="0.5" stroke-width="1.3" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
+}
+let heatHTML='';
+for(const [la,lo,pp] of HEAT){
+  heatHTML+='<circle cx="'+((lo-21.9)*OLDK+20).toFixed(1)+'" cy="'+((51.15-la)*OLDKY+20).toFixed(1)+'" r="'+(3+Math.sqrt(pp)*1.05).toFixed(1)+'" fill="url(#clheat)"/>';
+}
+for(const c of CITYSHAPES){
+  heatHTML+='<path d="'+c.path+'" fill="#F2C33C" fill-opacity="0.20" stroke="#B98F1F" stroke-opacity="0.85" stroke-width="1.1" vector-effect="non-scaling-stroke"/>';
+}
+// ── слой промышленности: ячейки OSM (landuse=industrial|quarry), краснее и крупнее —
+// больше промышленных площадей. Показывает, где город «занимается делом».
+let indHTML='';
+for(const [la,lo,k2] of IND){
+  const r=(2.0+2.6*Math.sqrt(k2)).toFixed(1);
+  const op=(0.16+0.44*Math.min(1,k2/3)).toFixed(2);
+  indHTML+='<circle cx="'+((lo-21.9)*OLDK+20).toFixed(1)+'" cy="'+((51.15-la)*OLDKY+20).toFixed(1)+'" r="'+r+'" fill="#A0421F" fill-opacity="'+op+'"/>';
+}
+let showInd=true;
+try{ showInd=localStorage.getItem('bhe:ind')!=='0'; }catch(e){}
+// слой «куда летело» — включён по умолчанию: для выбора жилья это первое, что смотрят
+let showStr=true;
+try{ showStr=localStorage.getItem('bhe:str')!=='0'; }catch(e){}
+// пять ступеней по числу ночей, когда угроза шла именно на это место:
+// 1–4 · 5–14 · 15–29 · 30–99 · 100+. Чем выше — крупнее и ярче ракета.
+// Все ступени — красные. Просьба покупателя 04.09.2026: «рисуй все ракеты даже
+// маленькие, красного цвета — а то не видно нихера». Прежние бледные тона нижних
+// уровней (#B9705B, #C4553A) сливались с пятнами промзон, и «летело один раз»
+// выглядело как «не летело». Различает уровни РАЗМЕР, цвет только добирает яркость.
+const STRC=['','#E03A22','#E63118','#EE2510','#F5170A','#FF0A00'];
+// Размер ракеты. Просьба покупателя 04.09.2026: «увеличь раза в 4, а то мелко» —
+// на большом мониторе слой из 10–26 px терялся среди маркеров. Ступени разведены
+// сильнее прежнего: «1 ночь» не должна выглядеть как «100 ночей».
+// Это размер для карты НА ВЕСЬ ЭКРАН. Во встроенную карту (вдвое меньше по обеим
+// сторонам) он не влезает: ракета Житомира занимала четверть её высоты и накрывала
+// пол-области. Поэтому высота умножается на strScale() — долю от полноэкранного
+// размера, но не меньше 0.3, иначе на телефоне слой снова исчезает.
+const STRH=[0,17,23,31,42,55];
+const strScale=()=>Math.max(0.3,Math.min(1,Math.min(W/1900,H/940)));
+// Полупрозрачность почти снята: у нижних уровней она и делала ракету невидимой.
+const STRO=[0,0.90,0.93,0.95,0.97,1];
+// Ракета носом вверх: высота h, центр в (cx,cy). Только абсолютные координаты —
+// у относительных команд накапливается ошибка и хвост уезжает от корпуса.
+// Корпус узкий (0.17 от высоты): при широком силуэт на 10 пикселях читается грибом.
+// Число целей у ракеты: сколько ракет и дронов шло курсом на это место за войну.
+// Кегль растёт вместе с ракетой, но не мельче 9 px, иначе на встроенной карте цифру
+// не прочитать. Гало по цвету фона — цифра ложится и на пятно промзоны, и на маркер.
+//
+// Ставится ВТОРЫМ ПРОХОДОМ, когда все подписи городов уже расставлены. Иначе цифра
+// затирала их своим гало: Староконстантинов рисуется после Хмельницкого (города идут
+// по убыванию населения), и его «236» съедало половину слова «Хмельницкий».
+// Порядок попыток: под ракетой → над ракетой → белым прямо на корпусе (там место есть
+// всегда, но на узкой ракете нижних уровней читается хуже).
+function strCountAt(q,boxes){
+  const f=Math.max(9,Math.min(19,q.h*0.26));
+  const w=String(q.val).length*f*0.62;
+  const free=(x0,yTop,yBot)=>!boxes.some(b=>x0<b.x1+2&&x0+w>b.x0-2&&yTop<b.y1+2&&yBot>b.y0-2);
+  const put=(y,fill,halo)=>{
+    boxes.push({x0:q.cx-w/2,x1:q.cx+w/2,y0:y-f,y1:y+2});
+    return '<text x="'+q.cx.toFixed(1)+'" y="'+y.toFixed(1)+'" font-size="'+f.toFixed(1)+'" '+
+      'font-weight="800" fill="'+fill+'" text-anchor="middle"'+
+      (halo?' paint-order="stroke" stroke="var(--bg)" stroke-width="'+(f*0.32).toFixed(1)+'" stroke-linejoin="round" stroke-opacity="0.95"':'')+
+      '>'+q.val+'</text>';
+  };
+  const below=q.cy+q.h/2+f*0.95;
+  if(free(q.cx-w/2,below-f,below+2)) return put(below,STRC[q.lv],true);
+  const above=q.cy-q.h/2-f*0.25;
+  if(free(q.cx-w/2,above-f,above+2)) return put(above,STRC[q.lv],true);
+  return put(q.cy+q.h*0.22,'var(--bg)',false);
+}
+function rocketPath(cx,cy,h){
+  const f=n=>n.toFixed(1);
+  const w=h*0.17, t=cy-h/2, b=cy+h/2;
+  const nose=t+h*0.36, body=b-h*0.18, fin=w*2.7;
+  return 'M'+f(cx)+' '+f(t)
+    +'L'+f(cx+w)+' '+f(nose)+'L'+f(cx+w)+' '+f(body)   // скос носа и правый борт
+    +'L'+f(cx+fin)+' '+f(b)+'L'+f(cx+w*0.9)+' '+f(b)   // правое крыло
+    +'L'+f(cx)+' '+f(b-h*0.08)                         // выемка хвоста
+    +'L'+f(cx-w*0.9)+' '+f(b)+'L'+f(cx-fin)+' '+f(b)   // левое крыло
+    +'L'+f(cx-w)+' '+f(body)+'L'+f(cx-w)+' '+f(nose)+'Z';
+}
+
+function project(){
+  b=Math.min((W-10)/CW,(H-10)/CH);
+  ox=(W-CW*b)/2; oy=(H-CH*b)/2;
+  PTS.forEach(p=>{p.x=wx(p.lon); p.y=wy(p.lat);});
+  k=b/OLDK; A=wx(21.9)-20*k; B=wy(51.15)-20*k;
+}
+function viewGeo(){ // географический центр текущего вида
+  return [LON0+((W/2-tx)/s-ox)/b, LAT1-((H/2-ty)/s-oy)/(KY*b)];
+}
+function setViewGeo(lon,lat){
+  tx=W/2-wx(lon)*s; ty=H/2-wy(lat)*s;
+}
+function fit(keep){
+  const fs=wrap.classList.contains('fsmode');
+  const c=keep?viewGeo():null;
+  stage.style.height=fs
+    ? window.innerHeight+'px'
+    : Math.min(Math.round(window.innerHeight*(TOUCH?0.52:0.62)),620)+'px';
+  W=Math.max(240,Math.round(stage.clientWidth)); H=Math.max(200,Math.round(stage.clientHeight));
+  svg.setAttribute('viewBox','0 0 '+W+' '+H);
+  clipR.setAttribute('width',W-2); clipR.setAttribute('height',H-2);
+  project();
+  if(c) setViewGeo(c[0],c[1]); else if(s===1){tx=0;ty=0;}
+}
+function toggleFs(){
+  wrap.classList.toggle('fsmode');
+  const fs=wrap.classList.contains('fsmode');
+  document.documentElement.style.overflow=fs?'hidden':'';
+  document.body.style.overflow=fs?'hidden':'';
+  document.body.classList.toggle('mapfs',fs);   // прячем кнопку «вверх» в фулскрине
+  const btn=document.getElementById('clfs');
+  btn.textContent=fs?'✕':'⛶';
+  btn.title=fs?'Выйти из полноэкранного режима':'На весь экран';
+  btn.setAttribute('aria-label',btn.title);
+  pop.hidden=true; hov.hidden=true;
+  fit(true); render();
+}
+function esc(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
+const favSet=()=>(window.BHFAV&&window.BHFAV.set)||null;
+const favOnly=()=>!!(window.BHFAV&&window.BHFAV.only);
+
+// пятиконечная звезда для избранного
+function starPath(cx,cy,r){
+  let p='';
+  for(let i=0;i<10;i++){
+    const a=-Math.PI/2+i*Math.PI/5, rr=(i%2)?r*0.44:r;
+    p+=(i?'L':'M')+(cx+rr*Math.cos(a)).toFixed(1)+' '+(cy+rr*Math.sin(a)).toFixed(1);
+  }
+  return p+'Z';
+}
+const FAVC='#EFB01C';
+// цвет звезды по уровню избранного: 1 — зелёная, 2 — синяя, 3 — золотая
+const FAVCOLORS={1:'#3FA46C',2:'#4C82D8',3:'#EFB01C'};
+function favLvl(fv,id){ if(!fv||!fv.has(id)) return 0; const v=fv.get(id); return Math.min(3,Math.max(1,(v&&v.l)||1)); }
+function favColor(l){ return FAVCOLORS[l]||FAVC; }
+function render(){
+  const fs=wrap.classList.contains('fsmode');
+  const cell=TOUCH?54:46, map=new Map(), only=favOnly(), fv=favSet();
+  const badge=document.getElementById('clfav');
+  if(badge){
+    badge.hidden=!only;
+    if(only) badge.textContent='★ на карте только избранное'+(fv?' ('+fv.size+')':'');
+  }
+  let skipped=0;
+  const delShown=[];   // удалённые при «показать удалённые»: отдельными перечёркнутыми маркерами, в кластеры не идут
+  for(const p of PTS){
+    if(only&&fv&&!fv.has(p.i)){ skipped++; continue; }
+    if(window.BHSK&&!window.BHSK.pass(p)){ skipped++; continue; }
+    if(window.BHDEAD&&window.BHDEAD.hide&&window.BHDEAD.has(p.i)){ skipped++; continue; }
+    const isdel=window.BHDEL&&window.BHDEL.has(p.i);
+    if(isdel&&!window.BHDEL.show){ skipped++; continue; }
+    const X=p.x*s+tx, Y=p.y*s+ty;
+    if(X<-60||Y<-60||X>W+60||Y>H+60) continue;
+    if(isdel){ const one=[{p,X,Y}]; one.del=true; delShown.push(one); continue; }
+    const key=Math.floor(X/cell)+':'+Math.floor(Y/cell);
+    (map.get(key)||map.set(key,[]).get(key)).push({p,X,Y});
+  }
+  clusters=[...map.values(),...delShown];
+  let out='<g clip-path="url(#clclip)" pointer-events="none"><g transform="translate('+tx+' '+ty+') scale('+s+') translate('+A+' '+B+') scale('+k+')">'+oblHTML+heatHTML+(showInd?indHTML:'')+'</g></g>';
+  const boxes=[];        // занятые подписями места: сначала города, потом области
+  const drawnCities=new Set();   // подписанные города: у их ракет своя подпись не нужна
+  let cityHTML='';       // подписи городов рисуются последними — поверх маркеров, иначе кластер их закрывает
+  // Ракеты «куда летело» собираются отдельно и уходят ПОД маркеры: после увеличения
+  // вчетверо крупная ракета накрывала число объявлений в кластере, а это главная
+  // цифра карты. Порядок слоёв снизу вверх: населённость и промзоны → ракеты →
+  // маркеры каталога → подписи городов. Так видно и красную зону, и объявления.
+  let rkHTML='';
+  const rkQueue=[];      // ракеты, которым во втором проходе надо подписать число целей
+  // Города: население стоит у названия, а размер и жирность подписи растут вместе
+  // с ним — просьба покупателя 03.09.2026. 25 тыс. — базовая ступень (это порог,
+  // ниже которого город в каталоге вообще не считается опорным), дальше четыре шага.
+  const cityStep=p=>p>=250?3:p>=100?2:p>=50?1:0;
+  const cityBase=W<430?10.5:11.5;
+  const STEP=[{f:0,w:500,r:3.5,o:0.80},{f:1.5,w:650,r:4.5,o:0.90},{f:3,w:750,r:5.5,o:1},{f:5,w:800,r:7,o:1}];
+  // На узком экране мелкие города появляются только при зуме, иначе подписи слипаются.
+  const cityMin=W<430?(s<2?50:s<3.5?25:0):(s<1.5?25:0);
+  for(const c of CITIES){
+    if(c[3]<cityMin) continue;
+    const X=wx(c[2])*s+tx, Y=wy(c[1])*s+ty;
+    if(X<-40||Y<-40||X>W+40||Y>H+40) continue;
+    const st=STEP[cityStep(c[3])], fs=cityBase+st.f, fn=fs-2.5;
+    const label=c[0], num=c[3]+' тыс.';
+    // Ракета «куда летело» стоит слева от подписи города, а не у его точки: у точки
+    // она садилась поверх маркеров каталога и закрывала число объявлений в кластере.
+    // Подписи же уже расставлены с разбором наложений и рисуются поверх всего.
+    const sr=showStr?STRM[label]:null, srh=sr?STRH[sr[3]]*strScale():0;
+    const srw=sr?srh*0.34+4:0;
+    // Население — второй строкой под названием. В одну строку подпись выходила вдвое
+    // шире, и «Хмельницкий 274 тыс.» затирал Тернополь в 150 пикселях от него.
+    const tw=Math.max(label.length*fs*0.56, num.length*fn*0.55);
+    // подпись не должна уезжать за край карты (ракета слева — часть ширины)
+    var anch='middle', lx=X;
+    if(X-tw/2-srw<4){ anch='start'; lx=4+srw; }
+    else if(X+tw/2>W-4){ anch='end'; lx=W-4; }
+    const x0=anch==='start'?lx:anch==='end'?lx-tw:lx-tw/2;
+    const yNum=Y-9, yLbl=yNum-fn-1, ty0=yLbl-fs;
+    // Крупные города идут первыми, поэтому при наложении отбрасывается меньший:
+    // иначе на общем виде подписи областных центров затирались районными.
+    // Ширина ракеты в проверку НЕ входит: иначе она отбирала подписи у пяти городов
+    // (Чортков, Золочев и другие пропадали с общего вида). В занятое место она,
+    // наоборот, входит — чтобы следующие подписи держали от неё дистанцию.
+    // Тесно стоящие ракеты слегка налезают на край соседней подписи, но у них гало
+    // по цвету фона, и читаются обе.
+    let hit=false;
+    for(const b of boxes){ if(x0<b.x1+3&&x0+tw>b.x0-3&&ty0<b.y1+2&&yNum+3>b.y0-2){ hit=true; break; } }
+    if(hit) continue;
+    boxes.push({x0:x0-srw,x1:x0+tw,y0:ty0,y1:yNum+3});
+    drawnCities.add(c[0]);
+    if(sr){
+      // ракета по центру блока подписи, слева от текста
+      const rcy=(ty0+yNum)/2, rcx=x0-srw/2-0.5, lv=sr[3];
+      rkHTML+='<path d="'+rocketPath(rcx,rcy,srh)+'" fill="'+STRC[lv]+'" fill-opacity="'+STRO[lv]+'" stroke="var(--bg)" stroke-width="'+(lv>=4?1.8:1.3)+'" stroke-opacity="0.8" stroke-linejoin="round"/>';
+      // Цифру ставим вторым проходом, когда все подписи городов уже на месте
+      rkQueue.push({cx:rcx,cy:rcy,h:srh,val:sr[4],lv:lv});
+    }
+    // Гало по цвету фона: подпись читается и поверх кластера, и поверх пятна населённости.
+    out+='<circle cx="'+X.toFixed(1)+'" cy="'+Y.toFixed(1)+'" r="'+st.r+'" fill="var(--muted)" fill-opacity="'+st.o+'"/>';
+    const halo='paint-order="stroke" stroke="var(--bg)" stroke-width="3.2" stroke-linejoin="round" stroke-opacity="0.92"';
+    cityHTML+='<text x="'+lx.toFixed(1)+'" y="'+yLbl.toFixed(1)+'" font-size="'+fs.toFixed(1)+'" font-weight="'+st.w+'" '+
+         'fill="var(--muted)" fill-opacity="'+st.o+'" text-anchor="'+anch+'" '+halo+'>'+label+'</text>'+
+         '<text x="'+lx.toFixed(1)+'" y="'+yNum.toFixed(1)+'" font-size="'+fn.toFixed(1)+'" font-weight="600" '+
+         'fill="var(--muted)" fill-opacity="'+(st.o*0.8).toFixed(2)+'" text-anchor="'+anch+'" '+halo+'>'+num+'</text>';
+  }
+  // подписи областей — в экранных координатах, чтобы не раздувались при зуме
+  const oblFont=W<430?10:11;
+  for(const o of OBLASTS){
+    const X=tx+s*(A+k*o.lx), Y=ty+s*(B+k*o.ly);
+    if(Y<14||Y>H-6||X<-40||X>W+40) continue;
+    // подпись целиком держим внутри карты
+    const tw=o.name.length*(oblFont*0.62+1.2);
+    let anch='middle', lx=X;
+    if(X-tw/2<6){ anch='start'; lx=6; }
+    else if(X+tw/2>W-6){ anch='end'; lx=W-6; }
+    // Название города с населением важнее названия области: если они налезают,
+    // подпись области сдвигается ниже, а если и там занято — не рисуется вовсе.
+    const ox0=anch==='start'?lx:anch==='end'?lx-tw:lx-tw/2;
+    const free=yy=>!boxes.some(b=>ox0<b.x1+3&&ox0+tw>b.x0-3&&yy-oblFont<b.y1+2&&yy+3>b.y0-2);
+    let oy=Y;
+    if(!free(oy)) oy=Y+oblFont+7;
+    if(!free(oy)) continue;
+    out+='<text x="'+lx.toFixed(1)+'" y="'+oy.toFixed(1)+'" font-size="'+oblFont+'" fill="var(--muted)" fill-opacity="0.75" '+
+         'letter-spacing="1.2" text-anchor="'+anch+'" pointer-events="none">'+o.name.toUpperCase()+'</text>';
+    boxes.push({x0:ox0,x1:ox0+tw,y0:oy-oblFont,y1:oy+3});
+  }
+  // ── слой «куда летело за войну» для мест БЕЗ подписи города: сёл и городков
+  // меньше 25 тыс. (Бурштын с ТЭС, Добротвор), а также тех, чья подпись не влезла.
+  // У подписанных городов ракета уже нарисована слева от названия, в rkHTML.
+  // Объявлений в таких местах может не быть вовсе — ракета всё равно нужна: покупатель
+  // просил видеть угрозу и там, где лоты появятся позже.
+  // Ракета уходит в rkHTML (под маркеры), а красная подпись — в strHTML (поверх всего):
+  // название должно читаться, иначе непонятно, о каком месте речь.
+  let strHTML="";
+  if(showStr){
+    const sboxes=[];
+    for(const t of STR){
+      if(drawnCities.has(t[0])) continue;
+      const X=wx(t[2])*s+tx, Y=wy(t[1])*s+ty, lv=t[3];
+      if(X<-30||Y<-30||X>W+30||Y>H+30) continue;
+      const h=STRH[lv]*strScale();
+      // Ракета рисуется ВСЕГДА, на любом уровне и любом зуме — просьба покупателя
+      // 04.09.2026 «рисуй все ракеты даже маленькие». Раньше нижние уровни на общем
+      // виде скрывались (minLv), и место, куда летело один раз, выглядело как место,
+      // куда не летело вовсе. Раз слой ушёл под маркеры, каши от них больше нет.
+      rkHTML+='<path d="'+rocketPath(X,Y,h)+'" fill="'+STRC[lv]+'" fill-opacity="'+STRO[lv]+'" stroke="var(--bg)" stroke-width="'+(lv>=4?1.8:1.3)+'" stroke-opacity="0.75" stroke-linejoin="round"/>';
+      // Подпись — только если влезла: имена, налезающие друг на друга, читаются хуже,
+      // чем их отсутствие. Сама ракета от этого больше не зависит.
+      const f=lv>=4?11:10, twn=t[0].length*f*0.55, lx0=X-twn/2, ly=Y+h/2+f+1;
+      if(boxes.concat(sboxes).some(b=>lx0<b.x1+2&&lx0+twn>b.x0-2&&ly-f<b.y1+2&&ly+2>b.y0-2)) continue;
+      sboxes.push({x0:lx0,x1:lx0+twn,y0:Y-h/2,y1:ly+2});
+      strHTML+='<text x="'+X.toFixed(1)+'" y="'+ly.toFixed(1)+'" font-size="'+f+'" font-weight="600" fill="'+STRC[lv]+'" text-anchor="middle" paint-order="stroke" stroke="var(--bg)" stroke-width="3" stroke-linejoin="round" stroke-opacity="0.9">'+t[0]+' '+t[4]+'</text>';
+    }
+  }
+  // Второй проход: числа целей. Крупные ракеты идут первыми — если места мало,
+  // цифра уезжает на корпус у мелкой, а не у той, ради которой слой и сделан.
+  rkQueue.sort((a,b)=>b.h-a.h);
+  for(const q of rkQueue) cityHTML+=strCountAt(q,boxes);
+  // ракеты в отдельной группе — раньше маркеров, поэтому кластеры лежат поверх них
+  out+='<g clip-path="url(#clclip)" pointer-events="none">'+rkHTML+'</g>';
+  const rSingle=TOUCH?10:8;
+  clusters.forEach((cl,i)=>{
+    const X=cl.reduce((a,q)=>a+q.X,0)/cl.length, Y=cl.reduce((a,q)=>a+q.Y,0)/cl.length;
+    cl.cx=X; cl.cy=Y;
+    const nf=fv?cl.filter(q=>fv.has(q.p.i)).length:0;
+    if(cl.length>1){
+      const r=(TOUCH?15:13)+Math.min(9,cl.length);
+      // звёздочка сбоку окрашена по СТАРШЕМУ уровню избранного в группе
+      const maxl=nf?Math.max.apply(null,cl.map(q=>favLvl(fv,q.p.i))):0;
+      out+='<g data-k="'+i+'" style="cursor:pointer">'+
+        '<circle cx="'+X.toFixed(1)+'" cy="'+Y.toFixed(1)+'" r="'+r+'" fill="var(--accent)"/>'+
+        '<text x="'+X.toFixed(1)+'" y="'+(Y+4.5).toFixed(1)+'" font-size="'+(TOUCH?14:13)+'" font-weight="700" fill="var(--bg)" text-anchor="middle" pointer-events="none">'+cl.length+'</text>'+
+        (nf?'<path d="'+starPath(X+r*0.85,Y-r*0.85,TOUCH?13:12)+'" fill="'+favColor(maxl)+'" stroke="var(--bg)" stroke-width="2.2" stroke-linejoin="round" pointer-events="none"/>':'')+
+        '</g>';
+    } else {
+      const p=cl[0].p, lvl=favLvl(fv,p.i), isf=lvl>0;
+      // одиночный маркер — не ссылка: клик открывает карточку с действиями (ссылка на источник внутри)
+      out+='<g data-k="'+i+'" style="cursor:pointer">'+
+        (cl.del
+          ? '<circle cx="'+X.toFixed(1)+'" cy="'+Y.toFixed(1)+'" r="'+rSingle+'" fill="var(--chip)" stroke="var(--muted)" stroke-width="1.6"/>'+
+            '<path d="M'+(X-4).toFixed(1)+' '+(Y-4).toFixed(1)+'L'+(X+4).toFixed(1)+' '+(Y+4).toFixed(1)+'M'+(X+4).toFixed(1)+' '+(Y-4).toFixed(1)+'L'+(X-4).toFixed(1)+' '+(Y+4).toFixed(1)+'" stroke="var(--dead)" stroke-width="2" stroke-linecap="round" fill="none" pointer-events="none"/>'
+          : isf
+          ? '<path d="'+starPath(X,Y,TOUCH?19:17)+'" fill="'+favColor(lvl)+'" stroke="var(--bg)" stroke-width="2.4" stroke-linejoin="round"/>'
+          : '<circle cx="'+X.toFixed(1)+'" cy="'+Y.toFixed(1)+'" r="'+rSingle+'" fill="var(--accent)" stroke="var(--bg)" stroke-width="1.8"/>')+
+        '</g>';
+      if(s>=3.5||(fs&&s>=2)) out+='<text x="'+X.toFixed(1)+'" y="'+(Y+rSingle+13).toFixed(1)+'" font-size="11" fill="var(--muted)" text-anchor="middle" pointer-events="none">'+esc(p.n)+'</text>';
+    }
+  });
+  g.innerHTML=out+'<g clip-path="url(#clclip)" pointer-events="none">'+cityHTML+strHTML+'</g>';
+}
+window.BHMAP={render:render};
+
+function zoomAt(f,cx,cy){
+  const ns=Math.max(1,Math.min(20,s*f)); f=ns/s;
+  tx=cx-(cx-tx)*f; ty=cy-(cy-ty)*f; s=ns;
+  if(s===1){tx=0;ty=0;}
+  pop.hidden=true; hov.hidden=true; render();
+}
+function svgPoint(e){
+  const r=svg.getBoundingClientRect();
+  return [(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height];
+}
+function showHint(txt){
+  hint.textContent=txt; hint.hidden=false;
+  clearTimeout(showHint.t); showHint.t=setTimeout(()=>{hint.hidden=true;},1700);
+}
+document.querySelector('.clhow').textContent=TOUCH
+  ? 'На телефоне: зум — двумя пальцами, кнопка ⛶ — на весь экран (там карта тянется одним пальцем).'
+  : 'Зум — Ctrl + колесо или кнопки +/−, перетаскивание — мышью.';
+
+// ── колесо (desktop): только с Ctrl, иначе страница скроллится
+svg.addEventListener('wheel',e=>{
+  if(!e.ctrlKey){ showHint('Зум карты — Ctrl + прокрутка (или кнопки +/−)'); return; }
+  e.preventDefault(); hint.hidden=true;
+  const [cx,cy]=svgPoint(e); zoomAt(e.deltaY<0?1.5:1/1.5,cx,cy);
+},{passive:false});
+
+const lgind=document.getElementById('lgind');
+if(lgind){
+  lgind.checked=showInd;
+  lgind.addEventListener('change',()=>{
+    showInd=lgind.checked;
+    try{ localStorage.setItem('bhe:ind', showInd?'1':'0'); }catch(e){}
+    render();
+  });
+}
+const lgstr=document.getElementById('lgstr');
+if(lgstr){
+  lgstr.checked=showStr;
+  lgstr.addEventListener('change',()=>{
+    showStr=lgstr.checked;
+    try{ localStorage.setItem('bhe:str', showStr?'1':'0'); }catch(e){}
+    render();
+  });
+}
+document.getElementById('clfs').onclick=toggleFs;
+document.getElementById('clzin').onclick=()=>zoomAt(1.6,W/2,H/2);
+document.getElementById('clzout').onclick=()=>zoomAt(1/1.6,W/2,H/2);
+document.getElementById('clrst').onclick=()=>{s=1;tx=0;ty=0;pop.hidden=true;hov.hidden=true;render();};
+
+// ── жесты: 1 палец — панорама (в фулскрине / мышью), 2 пальца — щипок-зум
+const ptrs=new Map();
+let drag=null, pinch=null, suppressClick=false;
+function midOf(){
+  const a=[...ptrs.values()];
+  const r=svg.getBoundingClientRect(), kk=W/r.width;
+  const mx=((a[0].x+a[1].x)/2-r.left)*kk, my=((a[0].y+a[1].y)/2-r.top)*kk;
+  return [mx,my,Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)*kk];
+}
+svg.addEventListener('pointerdown',e=>{
+  ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(ptrs.size===2){
+    const [mx,my,d]=midOf();
+    pinch={d:d||1,s0:s,tx0:tx,ty0:ty,mx,my}; drag=null; pop.hidden=true; hov.hidden=true;
+    return;
+  }
+  if(ptrs.size>2){ pinch=null; return; }
+  const panOk=e.pointerType!=='touch'||wrap.classList.contains('fsmode');
+  drag={x:e.clientX,y:e.clientY,tx,ty,moved:false,pid:e.pointerId,pan:panOk,
+        el:(e.target.closest?e.target.closest('[data-k]'):null)};
+},{passive:true});
+svg.addEventListener('pointermove',e=>{
+  if(ptrs.has(e.pointerId)) ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pinch&&ptrs.size>=2){
+    const [mx,my,d]=midOf();
+    const ns=Math.max(1,Math.min(20,pinch.s0*(d/pinch.d)));
+    const f=ns/pinch.s0;
+    tx=pinch.mx-(pinch.mx-pinch.tx0)*f; ty=pinch.my-(pinch.my-pinch.ty0)*f; s=ns;
+    suppressClick=true; render();
+    return;
+  }
+  if(!drag) return;
+  const r=svg.getBoundingClientRect(), kk=W/r.width;
+  const dx=(e.clientX-drag.x)*kk, dy=(e.clientY-drag.y)*kk;
+  if(!drag.moved&&Math.abs(dx)+Math.abs(dy)>5){
+    if(!drag.pan){ drag=null; return; }   // одним пальцем в обычном режиме — скроллим страницу
+    drag.moved=true;
+    try{svg.setPointerCapture(drag.pid);}catch(err){}
+  }
+  if(drag.moved){tx=drag.tx+dx; ty=drag.ty+dy; pop.hidden=true; hov.hidden=true; render();}
+});
+function endPtr(e){
+  ptrs.delete(e.pointerId);
+  if(ptrs.size<2&&pinch){ pinch=null; setTimeout(()=>{suppressClick=false;},60); }
+  const d=drag; drag=null;
+  if(!d||d.pid!==e.pointerId) return;
+  if(d.moved){ suppressClick=true; setTimeout(()=>{suppressClick=false;},60); return; }
+  const t=d.el;
+  if(!t){pop.hidden=true; return;}
+  const cl=clusters[+t.dataset.k];
+  if(!cl) return;
+  if(cl.length===1){ hov.hidden=true; showList(cl); return; }  // одиночный — карточка с действиями и ссылкой на источник
+  const spread=Math.max(...cl.map(q=>Math.hypot(q.p.x-cl[0].p.x,q.p.y-cl[0].p.y)));
+  if(s>=16||spread*s<8){ showList(cl); } else { zoomAt(2.2,cl.cx,cl.cy); }
+}
+svg.addEventListener('pointerup',endPtr);
+svg.addEventListener('pointercancel',e=>{ptrs.delete(e.pointerId); pinch=null; drag=null;});
+svg.addEventListener('click',e=>{ if(suppressClick){e.preventDefault(); e.stopPropagation();} },true);
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&wrap.classList.contains('fsmode')) toggleFs(); });
+window.addEventListener('resize',()=>{fit(true);render();});
+
+// карточка на карте: у каждого объявления ссылка на источник и те же метки, что на карточке
+// каталога — ★ избранное (по кругу зелёная → синяя → золотая → снять), ✕ недоступно, корзина.
+// Кнопки несут те же data-атрибуты, что и на карточках, поэтому их обрабатывают обработчики
+// страницы (localStorage, перекраска списка и карты); карточка после этого перерисовывается.
+const TRASH='<svg width="13" height="14" viewBox="0 0 14 15" aria-hidden="true"><path d="M2 4.5h10M5.5 2.5h3M3.5 4.5l.6 8.5h5.8l.6-8.5M5.8 7v4M8.2 7v4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const LVLT={0:'В избранное (зелёная звезда)',1:'Зелёная (1 из 3). Нажмите — станет синей',2:'Синяя (2 из 3). Нажмите — станет золотой',3:'Золотая (3 из 3). Нажмите — уберёт из избранного'};
+let curCl=null;
+function money(v){ return '$'+Number(v).toLocaleString('en-US').replace(/,/g,' '); }
+function showList(cl){
+  curCl=cl;
+  const r=svg.getBoundingClientRect(), wr=stage.getBoundingClientRect();
+  const _fv=favSet();
+  const head=cl.length===1?esc(cl[0].p.n):(cl.length+' объявлений — '+esc(cl[0].p.n));
+  pop.innerHTML='<div class="clrow"><b>'+head+'</b><button type="button" class="clx" aria-label="Закрыть">✕</button></div>'+cl.map(q=>{
+    const id=q.p.i, _l=favLvl(_fv,id);
+    const dead=!!(window.BHDEAD&&window.BHDEAD.has(id)), del=!!(window.BHDEL&&window.BHDEL.has(id));
+    return '<div class="cli'+(del?' isdel':'')+(dead?' isdead':'')+'">'+
+      '<a href="'+esc(q.p.u||'#')+'" target="_blank" rel="noopener" title="Открыть объявление в источнике">'+
+      '№'+q.p.r+' · '+money(q.p.p)+' · '+esc(q.p.t)+(q.p.g==='semi'?' ⚒':(q.p.g==='raw'?' 🏗':''))+' →</a>'+
+      '<button type="button" class="fav" data-fav="'+id+'"'+(_l?' data-lvl="'+_l+'"':'')+' aria-pressed="'+(_l?'true':'false')+'" title="'+LVLT[_l]+'">'+(_l?'★'.repeat(_l):'★')+'</button>'+
+      '<button type="button" class="unav" data-unav="'+id+'" aria-pressed="'+(dead?'true':'false')+'" title="'+(dead?'Снять пометку «недоступно»':'Пометить недоступным (объявление снято)')+'">✕</button>'+
+      '<button type="button" class="delb" data-del="'+id+'" aria-pressed="'+(del?'true':'false')+'" title="'+(del?'Вернуть в подборку':'Удалить из подборки (скроется из каталога и с карты)')+'">'+TRASH+'</button>'+
+      '<a class="cltocard" href="#row-'+id+'" title="К карточке в каталоге">↓</a>'+
+      '</div>';
+  }).join('');
+  pop.hidden=false;
+  const px=cl.cx*r.width/W+(r.left-wr.left), py=cl.cy*r.height/H+(r.top-wr.top);
+  pop.style.left=Math.max(6,Math.min(px-40, wr.width-pop.offsetWidth-8))+'px';
+  pop.style.top=(py-pop.offsetHeight-16>8?py-pop.offsetHeight-16:py+22)+'px';
+}
+pop.addEventListener('click',e=>{
+  const t=e.target.closest?e.target.closest('button,a'):null;
+  if(!t) return;
+  if(t.classList.contains('clx')){ pop.hidden=true; curCl=null; return; }
+  if(t.classList.contains('cltocard')){
+    e.preventDefault();
+    const row=document.getElementById((t.getAttribute('href')||'').slice(1));
+    if(!row) return;
+    if(wrap.classList.contains('fsmode')) toggleFs();
+    pop.hidden=true; curCl=null;
+    row.scrollIntoView({behavior:'smooth', block:'center'});
+    row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
+    return;
+  }
+  if(t.hasAttribute('data-fav')||t.hasAttribute('data-unav')||t.hasAttribute('data-del')){
+    // метку ставит страница (обработчики на document), после неё перерисовываем карточку
+    setTimeout(()=>{ if(curCl&&!pop.hidden) showList(curCl); },0);
+  }
+});
+// hover-превью (только мышь): фото берём из уже отрисованных карточек страницы
+const thumbCache=new Map();
+function thumbFor(p){
+  if(thumbCache.has(p.i)) return thumbCache.get(p.i);
+  const el=document.querySelector('[data-id="'+p.i+'"] img');
+  const src=el?el.src:null; thumbCache.set(p.i,src); return src;
+}
+function showHover(cl){
+  if(!pop.hidden) return;   // открыта карточка с действиями — превью не нужно
+  let inner='';
+  if(cl.length===1){
+    const p=cl[0].p, src=thumbFor(p);
+    if(!src) return;
+    // подробности берём из уже отрисованной строки каталога — там всё посчитано
+    const row=document.getElementById('row-'+p.i), ds=row?row.dataset:{};
+    const money=function(v){ return '$'+Number(v).toLocaleString('en-US').replace(/,/g,' '); };
+    const kmChip=row?row.querySelector('.ix.ixt'):null;
+    const kmTxt=kmChip?(kmChip.querySelector('b').textContent+' '+kmChip.querySelector('i').textContent):'';
+    const dChip=row?row.querySelector('.ix.ixd i'):null;
+    const dead=window.BHDEAD&&window.BHDEAD.has(p.i), del=window.BHDEL&&window.BHDEL.has(p.i);
+    const l2=[money(p.p), esc(p.n)+(p.ad?', '+esc(p.ad):''), ds.area?ds.area+' м²':'', ds.land?ds.land+' сот':''].filter(Boolean).join(' · ');
+    const l3=[ds.q?'цена/качество '+ds.q:'', ds.vpd?ds.vpd+' просм/день':'', ds.ppm?money(ds.ppm)+' за м²':''].filter(Boolean).join(' · ');
+    const l4=[kmTxt?esc(kmTxt):'', dChip?esc(dChip.textContent):''].filter(Boolean).join(' · ');
+    inner='<img src="'+src+'" style="width:210px;height:140px;object-fit:cover;border-radius:6px;display:block'+((dead||del)?';filter:grayscale(1);opacity:.7':'')+'">'+
+      '<div class="hcap"><div class="ht"><span class="hrank">'+p.r+'</span> '+esc(p.t)+'</div>'+
+      '<div>'+l2+'</div>'+
+      (l3?'<div>'+l3+'</div>':'')+
+      (l4?'<div>'+l4+'</div>':'')+
+      ((dead||del)?'<div style="margin-top:3px">'+(dead?'<span class="deadtag" style="margin-left:0;margin-right:6px">недоступно</span>':'')+(del?'<span class="deltag" style="margin-left:0">удалено</span>':'')+'</div>':'')+
+      '</div>';
+  } else {
+    const n=cl.length, cols=n<=4?2:3, cellN=Math.min(n,cols*cols);
+    const show=cl.slice(0,n>cellN?cellN-1:cellN), size=cols===2?84:64;
+    inner='<div style="display:grid;grid-template-columns:repeat('+cols+','+size+'px);gap:3px">'+
+      show.map(q=>{const s2=thumbFor(q.p); return s2?'<img src="'+s2+'" style="width:'+size+'px;height:'+Math.round(size*0.72)+'px;object-fit:cover;border-radius:4px;display:block">':'';}).join('')+
+      (n>cellN?'<div style="width:'+size+'px;height:'+Math.round(size*0.72)+'px;border-radius:4px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px">+'+(n-cellN+1)+'</div>':'')+
+      '</div><div class="hcap">'+n+' домов · '+esc(cl[0].p.n)+(cl.some(q=>q.p.n!==cl[0].p.n)?' и рядом':'')+'</div>';
+  }
+  hov.innerHTML=inner; hov.hidden=false;
+  const r=svg.getBoundingClientRect(), wr=stage.getBoundingClientRect();
+  const px=cl.cx*r.width/W+(r.left-wr.left), py=cl.cy*r.height/H+(r.top-wr.top);
+  hov.style.left=Math.max(6,Math.min(px-hov.offsetWidth/2,wr.width-hov.offsetWidth-6))+'px';
+  hov.style.top=Math.max(6,py-hov.offsetHeight-18)+'px';
+}
+if(!TOUCH){
+  svg.addEventListener('pointerover',e=>{
+    if((drag&&drag.moved)||pinch) return;
+    const t=e.target.closest?e.target.closest('[data-k]'):null;
+    if(!t){hov.hidden=true; return;}
+    const cl=clusters[+t.dataset.k];
+    if(cl) showHover(cl);
+  });
+  svg.addEventListener('pointerleave',()=>{hov.hidden=true;});
+  svg.addEventListener('pointerout',e=>{
+    if(!e.relatedTarget||!e.relatedTarget.closest||!e.relatedTarget.closest('[data-k]')) hov.hidden=true;
+  });
+}
+fit(false);
+render();
+})();
+</script>

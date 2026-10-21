@@ -1,0 +1,643 @@
+// Сборка страницы каталога v3 из units9.json: топ область×тип×источник (дома 100, квартиры 250) + перенесённый
+// набор «получистовая». Пишет две версии: best-houses9.html (артефакт, data URI картинок)
+// и ../index.html (GitHub Pages, внешние URL картинок).
+const fs = require('fs');
+const path = require('path');
+const { SEMI, CITIES9 } = require('./lib9');
+const D = path.join(__dirname, 'data') + path.sep;
+const D2 = 'C:/Users/xetr11/AppData/Local/Temp/claude/c--Users-xetr11-Documents-New-folder/2ba88487-cdb9-423e-b5e9-69abf018ad10/scratchpad/';
+const D5 = 'C:/Users/xetr11/AppData/Local/Temp/claude/c--Users-xetr11-Documents-New-folder/5e19b764-3f94-4fb8-8c59-b1d354783282/scratchpad/';
+const rd = f => JSON.parse(fs.readFileSync(f, 'utf8'));
+const ex = f => fs.existsSync(f);
+
+const DATE = '21 октября 2026 (первая сборка востока: дома $20–35 тыс., OLX и DOM.RIA)';
+const { units, semi, raw } = rd(D + 'units9.json');
+const market = ex(D + 'market9.json') ? rd(D + 'market9.json') : { byId: {} };
+const marketOld = ex(D5 + 'market-all.json') ? rd(D5 + 'market-all.json') : { byId: {} };
+const mkt = id => market.byId[id] || marketOld.byId[id] || null;
+const views9 = ex(D + 'views9.json') ? rd(D + 'views9.json') : {};
+const family = ex(D + 'family.json') ? rd(D + 'family.json') : {};
+const thumbs9 = ex(D + 'thumbs9.json') ? rd(D + 'thumbs9.json') : {};
+const thumbUrls9 = ex(D + 'thumb-urls9.json') ? rd(D + 'thumb-urls9.json') : {};
+const thumbsOld = ex(D2 + 'thumbs.json') ? rd(D2 + 'thumbs.json') : {};
+const thumbs2Old = ex(D5 + 'thumbs2.json') ? rd(D5 + 'thumbs2.json') : {};
+const thumbUrlsOld = ex(D5 + 'thumb-urls.json') ? rd(D5 + 'thumb-urls.json') : {};
+const shell = fs.readFileSync(path.join(__dirname, 'tpl', 'site-shell9.html'), 'utf8');
+const clusterTpl = fs.readFileSync(path.join(__dirname, 'tpl', 'clustermap9.html'), 'utf8');
+const industry = ex(D + 'industry.json') ? rd(D + 'industry.json') : { cells: [] };
+const strikes = ex(D + 'strikes.json') ? rd(D + 'strikes.json') : { cities: [], oblasts: [], from: '', to: '', posts: 0 };
+const addr9 = ex(D + 'addr9.json') ? rd(D + 'addr9.json') : {};
+const renov9 = ex(D + 'renov.json') ? rd(D + 'renov.json') : {};
+// когда лот впервые появился в нашем каталоге (см. scripts/first-seen.js)
+const firstSeen0 = ex(D + 'first-seen.json') ? rd(D + 'first-seen.json') : { seen: {}, runs: [], updated: '' };
+const SEEN = firstSeen0.seen || {};
+const RUNS = firstSeen0.runs || [];
+const LASTRUN = firstSeen0.updated || (RUNS.length ? RUNS[RUNS.length - 1] : '');
+const shapes = rd(D + 'oblast-shapes9.json');
+const dead0 = ex(path.join(__dirname, '..', 'dead.json')) ? rd(path.join(__dirname, '..', 'dead.json')) : { checked: '', dead: [] };
+
+const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+const fmt = n => Number(n).toLocaleString('en-US').replace(/,/g, ' ');
+
+// просмотры/день для лотов OLX — из views9 (PageViews GraphQL)
+for (const u of units) {
+  if (u.src !== 'olx') continue;
+  const v = views9[u.id];
+  if (v && v.views != null && u.days) { u.views = v.views; u.vpd = +(v.views / u.days).toFixed(1); }
+}
+
+/* ── плашки (как в build-site2, c поправками на новый формат) ── */
+function tint(v, mid, max) {
+  if (v == null) return '';
+  const y = Math.min(v, mid) / mid;
+  const r = Math.min(Math.max(v - mid, 0), max - mid) / (max - mid);
+  const e = Math.pow(r, 0.72);
+  const hue = Math.round(48 - 44 * e);
+  const a = (0.55 * y + 0.45 * e).toFixed(2);
+  return a === '0.00' ? '' : ` style="--kh:${hue};--ka:${a}"`;
+}
+const kmTint = km => tint(km, 10, 60);
+function eye(vpd) {
+  if (vpd == null || vpd <= 30) return '';
+  const r = 1.6 + 3.6 * Math.min(1, Math.log(vpd / 30) / Math.log(10));
+  return `<svg class="eye" width="20" height="14" viewBox="0 0 20 14" aria-hidden="true"><path d="M1 7 Q10 -2.5 19 7 Q10 16.5 1 7Z" fill="none" stroke="var(--muted)" stroke-width="1.4" stroke-linejoin="round"/><circle cx="10" cy="7" r="${r.toFixed(1)}" fill="var(--ink)"/></svg>`;
+}
+const RC = 37.7;
+function ring(v, label) {
+  if (v == null) return `<svg class="rg rgn" width="16" height="16" viewBox="0 0 16 16" role="img" aria-label="${label}: данных мало"><circle class="rgt" cx="8" cy="8" r="6"/></svg>`;
+  const hue = Math.round(4 + 116 * (v / 100));
+  const shown = Math.max(v, 7);
+  const off = (RC * (1 - shown / 100)).toFixed(1);
+  return `<svg class="rg" width="16" height="16" viewBox="0 0 16 16" style="--rh:${hue}" role="img" aria-label="${label}: ${v} из 100"><circle class="rgt" cx="8" cy="8" r="6"/><circle class="rgv" cx="8" cy="8" r="6" stroke-dasharray="${RC}" stroke-dashoffset="${off}"/></svg>`;
+}
+function marketTitle(m, kind) {
+  const what = kind === 'flat' ? 'квартир' : 'домов';
+  const t = [m.viaCity ? ('Рынок по ближайшему городу (' + m.loc + ') — в самом населённом пункте объявлений OLX для оценки не нашлось.') : 'Рынок вокруг этого жилья — по активным объявлениям OLX.'];
+  if (m.buy == null) t.push('ПРОДАТЬ: объявлений в радиусе 10 км слишком мало для оценки.');
+  else t.push('ПРОДАТЬ ' + m.buy + '/100: в радиусе 10 км продаётся ' + m.saleN10 + ' ' + what +
+    (m.saleN != null ? ' (' + m.saleN + ' в самом населённом пункте)' : '') +
+    ', активные объявления висят в среднем ' + m.medAge + ' дн., свежих до 30 дней ' + m.share30 + '%, больше года — ' + m.stale + '%.');
+  if (!m.rentN) t.push('СДАТЬ ' + m.rent + '/100: в самом населённом пункте жильё не сдают' +
+    (m.rentN15 ? ' (в радиусе 15 км — ' + m.rentN15 + ' объявлений' + (m.rentPriceNear ? ', медиана $' + m.rentPriceNear + '/мес' : '') + ', но это рынок соседнего города)' : '') + '.');
+  else t.push('СДАТЬ ' + m.rent + '/100: в населённом пункте сдают ' + (m.rentH || 0) + ' домов и ' + (m.rentF || 0) + ' квартир' +
+    (m.rentPrice ? ', медианная цена $' + m.rentPrice + '/мес' : '') + '; в радиусе 15 км — ' + m.rentN15 + ' объявлений.');
+  t.push('Красное кольцо — рынка нет, зелёное — живой.');
+  return t.join(' ');
+}
+function marketBadge(u) {
+  const m = mkt(u.id);
+  if (!m) return '';
+  const nums = (m.buy == null ? '—' : m.buy) + ' · ' + m.rent;
+  return `<span class="ix ixm" title="${esc(marketTitle(m, u.kind))}"><span class="rgs">${ring(m.buy, 'продать')}${ring(m.rent, 'сдать')}</span><span class="vtx"><b>${nums}</b><i>продать · сдать</i></span></span>`;
+}
+const MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+const NOW = new Date();
+function posted(u) {
+  if (!u.created) return null;
+  const d = new Date(u.created);
+  if (isNaN(d)) return null;
+  const days = Math.max(0, Math.round((NOW - d) / 86400000));
+  const mon = Math.round(days / 30.44);
+  const age = days < 60 ? days + ' дн' : (mon < 24 ? mon + ' мес' : (days / 365.25).toFixed(1).replace('.', ',') + ' года');
+  return { date: d.getDate() + ' ' + MON[d.getMonth()] + ' ' + d.getFullYear(), days, age, iso: u.created.slice(0, 10) };
+}
+// вторая дата (просьба покупателя 11.09.2026): когда лот подтянулся в наш каталог
+// очередным парсингом. Источник — реестр data/first-seen.json, см. scripts/first-seen.js
+function seenAt(u) {
+  const iso = SEEN[u.id];
+  if (!iso) return null;
+  const d = new Date(iso + 'T12:00:00Z');
+  if (isNaN(d)) return null;
+  const days = Math.max(0, Math.round((NOW - d) / 86400000));
+  const age = days === 0 ? 'сегодня' : (days === 1 ? 'вчера' : (days < 60 ? days + ' дн назад' : Math.round(days / 30.44) + ' мес назад'));
+  return { date: d.getUTCDate() + ' ' + MON[d.getUTCMonth()], days, age, iso };
+}
+/* «нам подходит» и чек-листы — как раньше */
+const FR = 19, FC = 2 * Math.PI * FR, FSEG = FC * 112 / 360;
+const FSTART = { dad: -90, mom: 30, son: 150 };
+function farc(v, key) {
+  const rot = 'rotate(' + FSTART[key] + ' 24 24)';
+  const track = '<circle class="fa" cx="24" cy="24" r="' + FR + '" stroke-dasharray="' + FSEG.toFixed(1) + ' ' + FC.toFixed(1) + '" transform="' + rot + '"/>';
+  if (!v) return track;
+  const hue = Math.round(4 + 116 * (v / 100));
+  const len = (FSEG * Math.max(v, 6) / 100).toFixed(1);
+  return track + '<circle class="fv" cx="24" cy="24" r="' + FR + '" style="--rh:' + hue + '" stroke-dasharray="' + len + ' ' + FC.toFixed(1) + '" transform="' + rot + '"/>';
+}
+function fitTitle(f) {
+  if (!f.fit) return 'Разбор под нашу семью: ' + f.tag + '. Нажмите, чтобы прочитать.';
+  return 'Насколько лот подходит именно нам: ' + f.fit + ' из 100 (папа — удалёнка ' + f.dad +
+    ', мама — работа микробиологом ' + f.mom + ', сын — репетиторство ' + f.son +
+    '). Дуги сверху по часовой: папа, мама, сын. Нажмите, чтобы прочитать разбор.';
+}
+function fitBadge(u) {
+  const f = family[u.id];
+  if (!f) return '';
+  const arcs = ['dad', 'mom', 'son'].map(k => farc(f.fit ? f[k] : 0, k)).join('');
+  const mid = f.fit ? String(f.fit) : '—';
+  const label = f.fit ? 'нам подходит' : 'разбор';
+  const sub = f.fit ? f.fit + ' из 100' : esc(f.tag);
+  return '<button class="fitb" type="button" aria-expanded="false" aria-controls="fit-' + u.id + '" title="' + esc(fitTitle(f)) + '">' +
+    '<svg class="fitr" width="48" height="48" viewBox="0 0 48 48" aria-hidden="true">' + arcs +
+    '<text class="' + (f.fit ? 'fn' : 'fnd') + '" x="24" y="29">' + mid + '</text></svg>' +
+    '<span class="fitw"><b>' + label + '</b><i>' + sub + '</i></span></button>';
+}
+function fitLines(body) {
+  const lines = String(body).split('\n').map(x => x.trim()).filter(Boolean);
+  const out = [];
+  let ul = [];
+  const flushUl = () => { if (ul.length) { out.push('<ul>' + ul.join('') + '</ul>'); ul = []; } };
+  for (const line of lines) {
+    if (line.startsWith('•')) ul.push('<li>' + esc(line.replace(/^•\s*/, '')) + '</li>');
+    else { flushUl(); out.push('<p>' + esc(line) + '</p>'); }
+  }
+  flushUl();
+  return out.join('');
+}
+function fitBody(u) {
+  const f = family[u.id];
+  if (!f) return '';
+  const secs = f.sec.map(([k, title, body]) => {
+    const score = f.fit && (k === 'dad' || k === 'mom' || k === 'son') ? '<span>' + f[k] + '/100</span>' : '';
+    return '<div class="fsec fsec-' + k + '"><h5>' + esc(title) + score + '</h5>' + fitLines(body) + '</div>';
+  }).join('');
+  return '<div class="fitbody" id="fit-' + u.id + '" hidden><span class="fittag">' + esc(f.tag) + '</span>' +
+    '<p class="fitsum">' + esc(f.sum) + '</p>' + secs + '</div>';
+}
+const CWEIGHT = { stop: 0, trade: 1, nice: 2 };
+const CWNAME = { stop: 'до аванса', trade: 'торг', nice: 'посмотреть' };
+function chkBadge(u) {
+  const f = family[u.id];
+  if (!f || !f.chk || !f.chk.length) return '';
+  const n = f.chk.length;
+  const stops = f.chk.filter(c => c[0] === 'stop').length;
+  const title = 'Чек-лист именно этого дома: ' + n + ' пунктов' +
+    (stops ? ', из них ' + stops + ' проверить до аванса' : '') +
+    '. Галочки сохраняются в этом браузере отдельно по каждому дому.';
+  return '<button class="chkb" type="button" aria-expanded="false" aria-controls="chk-' + u.id + '" title="' + esc(title) + '">' +
+    '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">' +
+    '<rect x="2.5" y="2.5" width="17" height="17" rx="4" fill="none" stroke="var(--amber)" stroke-width="1.6"/>' +
+    '<path d="M6.5 11.4l3.1 3.1 6-6.4" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+    '<span class="fitw"><b>чек-лист осмотра</b><i class="chkn">0 из ' + n + '</i></span></button>';
+}
+function chkBody(u) {
+  const f = family[u.id];
+  if (!f || !f.chk || !f.chk.length) return '';
+  const items = f.chk.map((c, i) => ({ w: c[0], t: c[1], i }))
+    .sort((a, b) => CWEIGHT[a.w] - CWEIGHT[b.w] || a.i - b.i);
+  const lis = items.map(it =>
+    '<li><label class="w-' + it.w + '"><input type="checkbox" data-ci="' + it.i + '">' +
+    '<span>' + esc(it.t) + ' <i style="font-style:normal;opacity:.6">· ' + CWNAME[it.w] + '</i></span></label></li>').join('');
+  return '<div class="chkbody" id="chk-' + u.id + '" hidden>' +
+    '<p class="chkt">Чек-лист именно этого дома</p>' +
+    '<div class="chkbar"><span class="chkprog" role="img" aria-label="прогресс по этому дому"><i></i></span>' +
+    '<button class="chkrst" type="button" data-crst title="Снять галочки по этому дому">Сбросить</button></div>' +
+    '<ul class="chkl">' + lis + '</ul></div>';
+}
+
+const byId = {};
+for (const u of [...units, ...semi, ...raw]) byId[u.id] = u;
+const SRC_LABEL = { olx: 'OLX', lun: 'ЛУН', tg: 'ТЕЛЕГРАМ', fb: 'ФЕЙСБУК', riel: 'RIELTOR', metr: 'МЕТРАЖ', lunnb: 'ЗАСТРОЙЩИК', domria: 'DOM.RIA', flatfy: 'FLATFY' };
+const KIND_LABEL = { house: 'дом', flat: 'квартира' };
+function dupBadges(u) {
+  if (!u.dups || !u.dups.length) return '';
+  return u.dups.map(id => {
+    const o = byId[id];
+    if (!o) return '';
+    return `<a class="dupb" href="#row-${id}" title="Похоже, тот же объект размещён и в другом источнике (${SRC_LABEL[o.src]}): цена и площадь совпадают. Клик — ко второй карточке.">⇆ ${SRC_LABEL[o.src]}</a>`;
+  }).join('');
+}
+
+// ── «Куда летело»: воздушная угроза у ближайшего города лота, по хронике канала
+// «Николаевский Ванёк» за всю войну (scripts/strikes.js → data/strikes.json).
+// Ключ — украинское имя города из CITIES9, то же, что в u.city.
+const STRK = {};
+for (const c of strikes.cities) STRK[c.name] = c;
+// Пять ступеней по числу ночей, когда угроза шла ИМЕННО на это место
+// («курсом на», подлёт, «будет громко»), а не «где-то в области».
+// Те же границы и цвета — в tpl/clustermap9.html (STRC/STRH): менять в двух местах.
+// Ступень задаёт ЧИСЛО ЦЕЛЕЙ (c.obj), а не число ночей: у ракеты на карте подписано
+// именно оно (просьба покупателя 04.09.2026 — «пиши возле ракеты, сколько ракет
+// полетело туда»), и размер должен расти вместе с подписанной цифрой, иначе карта
+// выглядит сломанной: большая ракета с маленьким числом.
+const STR_LVL = o => o >= 200 ? 5 : o >= 60 ? 4 : o >= 25 ? 3 : o >= 8 ? 2 : 1;
+// Все ступени красные: бледные тона нижних уровней сливались с пятнами промзон.
+const STR_COLOR = ['', '#E03A22', '#E63118', '#EE2510', '#F5170A', '#FF0A00'];
+const STR_WORD = ['', 'единичные случаи', 'изредка', 'регулярно', 'часто', 'постоянно'];
+const targetWord = n => n % 10 === 1 && n % 100 !== 11 ? 'цель'
+  : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'цели' : 'целей');
+// Тот же силуэт, что на карте, приведённый к viewBox 16×16 (h=14, центр 8,8).
+const ROCKET_D = 'M8 1L10.4 6L10.4 12.5L14.4 15L10.1 15L8 13.9L5.9 15L1.6 15L5.6 12.5L5.6 6Z';
+const nightWord = n => n % 10 === 1 && n % 100 !== 11 ? 'ночь'
+  : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'ночи' : 'ночей');
+const nights = n => n + ' ' + nightWord(n);
+function strikeChip(u) {
+  const city = u.city;
+  if (!city) return '';
+  const c = STRK[city];
+  const per = strikes.from && strikes.to ? `${strikes.from.split('-').reverse().join('.')} — ${strikes.to.split('-').reverse().join('.')}` : '';
+  if (!c) {
+    const t = `За всю войну (${per}, ${fmt(strikes.posts)} постов хроники) канал «Николаевский Ванёк» ни разу не назвал ${city}: ни ракет, ни дронов курсом на этот город. ` +
+      'Это не гарантия безопасности — канал ведёт один человек и подробность у него неровная, а угроза для области существует и там, где город не называли. ' +
+      'Но по этой хронике сюда за четыре с половиной года не летело.';
+    return `<span class="ix ixr0" title="${esc(t)}"><b>—</b><i>не летело на ${esc(city)}</i></span>`;
+  }
+  const misPct = c.mis + c.drn ? Math.round(100 * c.mis / (c.mis + c.drn)) : 0;
+  if (!c.obj) {
+    // город в хронике есть, но ни одна цель не шла НА него — только пролёты мимо
+    const t = `${city} за ${per} попадал в хронику ${nights(c.nights)} (эпизодов ${c.n}), но ни разу — ` +
+      'как цель: канал сообщал о пролётах рядом и над районом, а не о курсе на этот город. ' +
+      'Это не гарантия безопасности, но по хронике сюда не летело.';
+    return `<span class="ix ixr0" title="${esc(t)}"><b>0</b><i>целей на ${esc(city)}, летело мимо</i></span>`;
+  }
+  const lv = STR_LVL(c.obj);
+  const t = `${city}: за ${per} канал сообщил о ${c.obj} ${targetWord(c.obj)}, шедших курсом на этот город ` +
+    `(это оценка снизу — по каждой ночи взята самая большая сообщённая группа; если складывать все сообщения, ` +
+    `выйдет ${c.objSum}, но там одна и та же группа считается по нескольку раз, пока её ведут). ` +
+    `Разных ночей с угрозой на город — ${c.atNights}; всего город упомянут в хронике в ${nights(c.nights)}, эпизодов ${c.n}` +
+    (c.hits ? `, со взрывом или работой ПВО — ${c.hits}` : '') + '. ' +
+    `Чем летело: ракеты ${misPct}%, дроны «шахеды» ${100 - misPct}%. ` +
+    `Уровень ${lv} из 5 — ${STR_WORD[lv]}. Считано по хронике одного канала: это не официальная статистика ударов.`;
+  return `<span class="ix ixr" style="--sc:${STR_COLOR[lv]}" title="${esc(t)}">` +
+    `<svg class="rkt" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="${ROCKET_D}" fill="${STR_COLOR[lv]}"/></svg>` +
+    `<span class="rtx"><b>${c.obj}</b><i>${targetWord(c.obj)} летело на ${esc(city)} · ${c.atNights} ${nightWord(c.atNights)}</i></span></span>`;
+}
+
+function idx(u) {
+  const parts = [];
+  const fb = fitBadge(u);
+  if (fb) parts.push(fb);
+  const cb = chkBadge(u);
+  if (cb) parts.push(cb);
+  const isSemi = u.ready === 'semi' || u.ready === 'raw';
+  const semiSetLabel = u.ready === 'raw' ? 'чистовая' : 'получистовая';
+  if (isSemi) parts.push(`<span class="ix ixq" title="Индекс цена/качество внутри набора «${semiSetLabel}»: близость к городу с двойным весом, цена за м², что уже готово к жизни, площадь, ${u.kind === 'flat' ? 'комнаты и этаж' : 'участок'}"><b>${u.quality}</b><i>цена/качество</i></span>`);
+  else parts.push(`<span class="ix ixq" title="Индекс цена/качество внутри своего набора: близость к городу с двойным весом, цена за м², площадь, ${u.kind === 'flat' ? 'комнаты, этаж, ремонт' : 'участок'}"><b>${u.quality}</b><i>цена/качество</i></span>`);
+  parts.push(`<span class="ix ixp" title="Цена в объявлении"><b>$${fmt(u.price)}</b><i>цена</i></span>`);
+  if (isSemi) {
+    // у получистовой и у чистовой от застройщика вместо спроса и рынка — «что готово» и «к рынку области»
+    const sc = SEMI[u.semi] || SEMI.unfin;
+    parts.push(`<span class="ix ixw" title="${esc(sc.title)}"><b>${esc(sc.short)}</b><i>что готово</i></span>`);
+    if (u.disc != null && u.medPpm) {
+      const sign = u.disc > 0 ? '−' : (u.disc < 0 ? '+' : '');
+      const t = u.disc > 0
+        ? `Цена за м² ниже медианы по области среди жилья того же типа в готовом состоянии ($${fmt(u.medPpm)}/м²) — скидка за то, что часть работы придётся доделать самому`
+        : `Цена за м² не ниже медианы готового жилья того же типа по области ($${fmt(u.medPpm)}/м²) — скидки за недоделки нет, есть повод торговаться`;
+      parts.push(`<span class="ix ixs" title="${esc(t)}"><b>${sign}${Math.abs(u.disc)}%</b><i>к рынку области</i></span>`);
+    }
+    // смета ремонта «чтобы жить» — просьба покупателя 08.09.2026: «проверь по картинкам,
+    // сколько будет стоить ремонт — лайт, норм, люкс». Оценка по фото и рынку Запада Украины
+    // 2026 (см. заголовок scripts/renov-compute.js), не точная смета для конкретного адреса.
+    const rv = renov9[u.id];
+    if (rv) {
+      const rt = 'Грубая оценка ремонта «чтобы жить», не смета — ориентир по фото объявления и рынку Запада '
+        + 'Украины 2026, под ключ (работа + материалы): лайт — минимально жилой на эконом-материалах, '
+        + 'норм — обычный евроремонт среднего уровня, люкс — дизайнерская отделка премиум-класса.'
+        + (rv.frac < 1 ? ` Под полную отделку — примерно ${Math.round(rv.frac * 100)}% площади, остальное уже жилое.` : '')
+        + ' Перед покупкой уточняйте у местных подрядчиков — цена зависит от планировки, поставщиков и сезона.';
+      parts.push(`<span class="ix ixr2" title="${esc(rt)}"><b>$${fmt(rv.light)} · $${fmt(rv.normal)} · $${fmt(rv.lux)}</b><i>ремонт: лайт · норм · люкс</i></span>`);
+    }
+  } else {
+    if (u.vpd != null) parts.push(`<span class="ix ixv" title="Просмотров в день: ${fmt(u.views)} просмотров за ${u.days} дн. на OLX"><span class="vtx"><b>${u.vpd}</b><i>просм/день</i></span>${eye(u.vpd)}</span>`);
+    const mb = marketBadge(u);
+    if (mb) parts.push(mb);
+  }
+  if (u.km != null) parts.push(`<span class="ix ixt"${kmTint(u.km)} title="Расстояние по прямой до ближайшего города"><b>${u.km} км</b><i>до ${esc(u.city)}</i></span>`);
+  { const sc = strikeChip(u); if (sc) parts.push(sc); }
+  if (u.ppm) parts.push(`<span class="ix" title="Цена за квадратный метр"><b>$${fmt(u.ppm)}</b><i>за м²</i></span>`);
+  if (u.kind === 'flat' && u.floor) parts.push(`<span class="ix" title="Этаж и этажность дома"><b>${u.floor}${u.floors ? '/' + u.floors : ''}</b><i>этаж</i></span>`);
+  const ps = posted(u);
+  const WHERE = { olx: 'на OLX', lun: 'на ЛУНе', tg: 'в канале', fb: 'на Фейсбуке', riel: 'на Rieltor.ua', metr: 'на Метраже', domria: 'на dom.ria', flatfy: 'на Flatfy' };
+  const WHERE_T = {
+    olx: 'Размещено на OLX ' + (ps ? ps.date : '') + '. На странице объявления OLX показывает дату последнего поднятия',
+    lun: 'Дата объявления на ЛУНе',
+    tg: 'Дата поста в канале Телеграма — не дата размещения объекта: агрегаторы перевыкладывают один лот месяцами',
+    fb: /\/groups\//.test(u.link || '') ? 'Дата поста в группе Facebook — продавцы перевыкладывают пост, поэтому дата может быть моложе самого предложения' : 'Дата публикации в Facebook Marketplace',
+    riel: 'Дата объявления на Rieltor.ua', metr: 'Дата объявления на Метраже',
+    domria: 'Дата объявления на dom.ria.com',
+    flatfy: 'Дата, когда flatfy.ua впервые проиндексировал объявление (само объявление размещено на другом сайте — flatfy его агрегирует)',
+  };
+  if (ps) parts.push(`<span class="ix ixd" title="${WHERE_T[u.src] || ''}, продаётся ${ps.age}"><b>${ps.date}</b><i>${WHERE[u.src] || 'на OLX'} ${ps.age}</i></span>`);
+  const sn = seenAt(u);
+  if (sn) {
+    const st = `Когда лот подтянулся в наш каталог: ${sn.iso} (${sn.age}). Это дата парсинга, а не дата объявления — `
+      + `лот мог висеть на источнике задолго до того, как попал к нам в каталог. `
+      + `История ведётся по сборкам каталога с 25.08.2026; последний сбор — ${LASTRUN || '—'}.`;
+    parts.push(`<span class="ix ixn2${sn.days <= 1 ? ' ixn2f' : ''}" title="${esc(st)}"><b>${sn.date}</b><i>у нас ${sn.age}</i></span>`);
+  }
+  return `<div class="ixs">${parts.join('')}</div>`;
+}
+
+const favBtn = id => `<button class="fav" data-fav="${id}" aria-pressed="false" title="В избранное" aria-label="В избранное">★</button>`;
+
+function thumbFor(u, mode) {
+  if (mode === 'data') return thumbs9[u.id] || thumbs2Old[u.id] || thumbsOld[u.id] || '';
+  const url = thumbUrls9[u.id] || thumbUrlsOld[u.id];
+  if (url) return url;
+  const p = u.photoUrl || (u.photos || [])[0];
+  if (!p) return '';
+  if (/olxcdn/.test(p)) return String(p).replace(/;s=\d+x\d+/, ';s=200x150').replace('{width}x{height}', '200x150');
+  return p;
+}
+
+function rowFor(u, mode) {
+  const metaParts = [`<b>$${fmt(u.price)}</b>`, esc(u.loc), u.area ? u.area + ' м²' : '',
+    u.kind === 'house' ? (u.land ? u.land + ' сот' : '') : (u.rooms ? u.rooms + ' комн' : ''),
+    u.kind === 'flat' && u.floor ? u.floor + (u.floors ? '/' + u.floors : '') + ' эт' : '',
+    esc(u.city || u.region || '')].filter(Boolean);
+  const meta = metaParts.join(' · ');
+  const SRC_HINT = {
+    lun: 'Объявление найдено на lun.ua',
+    olx: 'Объявление с OLX.ua',
+    tg: 'Пост в публичном канале Telegram' + (u.chan ? ' @' + u.chan : '') + (u.locExact ? '' : ' · село в посте не указано, точка стоит на городе'),
+    fb: /\/groups\//.test(u.link || '') ? 'Пост в группе Facebook о продаже домов: цена, площадь и село взяты из текста поста, село найдено на карте по названию — уточняйте у продавца' : 'Объявление в Facebook Marketplace',
+    riel: 'Объявление с Rieltor.ua · координаты из карточки продавца',
+    metr: 'Объявление с Metrazh.com.ua' + (u.locExact ? '' : ' · точка на карте — центр города поиска, не адрес дома'),
+    lunnb: 'Прайс напрямую от застройщика (LUN, раздел «Новобудови») — цена «от» на самый дешёвый юнит этого типа комнатности, не конкретная квартира' + (u.locExact ? '' : ' · точка на карте — центр города поиска, не адрес ЖК'),
+    domria: 'Объявление с dom.ria.com · координаты из карточки продавца',
+    flatfy: 'Найдено через агрегатор flatfy.ua (группа LUN) — ссылка ведёт на исходное объявление на другом сайте, само flatfy своих объявлений не размещает',
+  };
+  const semiCls = SEMI[u.semi] || SEMI.unfin;
+  const semiTitle = u.semi === 'devnew'
+    ? (u.developer
+        ? `Первичная продажа напрямую от застройщика «${u.developer}», чистова обробка (без ремонта) — жить пока нельзя. Проверен по своему послужному списку на LUN: не младше 5 лет на рынке и минимум 2 сданных дома.${u.term ? ' Термін введення ' + u.term + '.' : ''}`
+        : (u.src === 'olx'
+            ? 'Новобудова, первинний ринок (структурная метка OLX «Первинний ринок»), чистова обробка — жить пока нельзя. Кто именно продаёт — сам застройщик или перекупщик — карточка не проверяет (в отличие от ЛУНа, где послужной список застройщика подтверждён), уточняйте у продавца.'
+            : semiCls.title))
+    : semiCls.title;
+  const semiB = (u.ready === 'semi' || u.ready === 'raw') ? `<span class="semib" title="${esc(semiTitle)}">${semiCls.badge}</span>` : '';
+  const newB = u.isNew ? `<span class="newb" title="Новостройка, проверенная по фотографиям: на снимках жилой интерьер, а не бетон под чистову. Такие лоты идут первыми и не вытесняются вторичкой из топа. Новострой без живых фото (стяжка и штукатурка, только планировка или рендер, только фасад) с 13.09.2026 не выбрасывается, а идёт в список «чистовая». Проверьте, что продаётся — зарегистрированное право собственности или имущественные права по договору с застройщиком: это разные договоры, налоги и риск">НОВОСТРОЙ</span>` : '';
+  const badges = `<span class="srcb srcb-${u.src}" title="${SRC_HINT[u.src] || ''}">${SRC_LABEL[u.src]}</span><span class="kindb" title="Тип жилья">${KIND_LABEL[u.kind]}</span>${newB}${semiB}${dupBadges(u)}`;
+  const m = mkt(u.id);
+  const d = [
+    `data-id="${u.id}"`, `data-rank="${u.rankIn}"`, `data-q="${u.quality}"`, `data-price="${u.price}"`,
+    `data-src="${u.src}"`, `data-kind="${u.kind}"`,
+    u.obl ? `data-obl="${u.obl}"` : '',
+    u.isNew ? 'data-new="1"' : '',
+    (u.ready === 'semi' || u.ready === 'raw') ? `data-ready="${u.ready}" data-semi="${u.semi}"` + (u.disc != null ? ` data-disc="${u.disc}"` : '') : '',
+    family[u.id] && family[u.id].fit ? `data-fit="${family[u.id].fit}"` : '',
+    u.ppm ? `data-ppm="${u.ppm}"` : '', u.area ? `data-area="${u.area}"` : '', u.land ? `data-land="${u.land}"` : '',
+    u.rooms ? `data-rooms="${u.rooms}"` : '',
+    u.vpd != null ? `data-vpd="${u.vpd}"` : '', u.views != null ? `data-views="${u.views}"` : '',
+    u.km != null ? `data-km="${u.km}"` : '',
+    m ? `data-mbuy="${m.buy == null ? '' : m.buy}" data-mrent="${m.rent}"` : '',
+    u.days != null ? `data-days="${u.days}"` + (u.created ? ` data-created="${u.created.slice(0, 10)}"` : '') : '',
+    (() => { const s = seenAt(u); return s ? `data-seen="${s.iso}" data-seendays="${s.days}"` : ''; })()
+  ].filter(Boolean).join(' ');
+  const img = thumbFor(u, mode);
+  return `<div class="row" id="row-${u.id}" ${d}><a class="ph" href="${esc(u.link)}" target="_blank" rel="noopener">${img ? `<img src="${img}" alt="" loading="lazy">` : '<span class="nophoto"></span>'}</a><div class="b"><div class="t"><span class="tx"><span class="rnk">${u.rankIn}</span><a href="${esc(u.link)}" target="_blank" rel="noopener">${esc(u.title)}</a>${badges}</span>${favBtn(u.id)}</div><div class="m">${meta}</div>${idx(u)}${fitBody(u)}${chkBody(u)}</div></div>`;
+}
+
+function rowsFor(mode) {
+  // получистовая и чистовая от застройщика идут после готового: на странице это
+  // отдельные списки со своими шапками
+  return [...units, ...semi, ...raw].map(u => rowFor(u, mode)).join('\n');
+}
+
+/* ── точки карты ── */
+const pts = [];
+let noGeo = 0;
+for (const u of [...units, ...semi, ...raw]) {
+  if (!u.lat || !u.lon) { noGeo++; continue; }
+  const p = {
+    r: u.rankIn, i: u.id, lat: +(+u.lat).toFixed(4), lon: +(+u.lon).toFixed(4), p: u.price,
+    n: u.loc, t: String(u.title || '').slice(0, 40), u: u.link, q: u.quality,
+    s: u.src, k: u.kind, a: u.area || null,
+  };
+  if (u.obl) p.o = u.obl;
+  if (u.isNew) p.nb = 1;
+  // дни для фильтров по датам: sd — сколько дней лот у нас, pd — сколько на источнике
+  { const s = seenAt(u); if (s) p.sd = s.days; }
+  { const ps2 = posted(u); if (ps2) p.pd = ps2.days; }
+  if (u.ready === 'semi' || u.ready === 'raw') p.g = u.ready;
+  // откуда взята точка: h — адрес с номером дома, s — улица, p — село названо в тексте
+  if (u.geoSrc === 'house') p.w = 'h';
+  else if (u.geoSrc === 'street') p.w = 's';
+  else if (u.geoSrc === 'place') p.w = 'p';
+  const a = addr9[u.id];
+  if (a && a.src === 'street') p.ad = 'вул. ' + a.street + (a.house ? ' ' + a.house : '');
+  pts.push(p);
+}
+
+const N = units.length + semi.length + raw.length;
+const acc = { h: 0, s: 0, p: 0 };
+for (const p of pts) if (p.w) acc[p.w]++;
+const exact = acc.h + acc.s;
+const GEOACC = exact
+  ? `Точность метки разная: у ${exact} объявлений адрес указан в тексте (${acc.h} с номером дома, ${acc.s} до улицы) — метка стоит по нему; ` +
+    `у остальных известен только населённый пункт, и точка стоит в его центре. Проверяйте адрес у продавца.`
+  : 'Позиции — по селу из объявления, точного адреса в объявлениях нет: точка стоит в центре населённого пункта.';
+const GEOLEDE = `<b>Метка на карте — это не адрес дома.</b> Точный адрес продавцы указывают редко: ` +
+  `у <b>${acc.h + acc.s}</b> объявлений улица (а у ${acc.h} и номер дома) нашлась в заголовке или описании — ` +
+  `их метки стоят по этому адресу; ещё у <b>${acc.p}</b> в тексте назван другой населённый пункт, чем в поле объявления, ` +
+  `и метка перенесена туда. У остальных <b>${N - acc.h - acc.s - acc.p}</b> известен только населённый пункт: ` +
+  `точка стоит в его центре, и все лоты одного села лежат в одной точке — кластер на карте означает «в одном селе», ` +
+  `а не «дома рядом». Перед выездом адрес уточняйте у продавца.`;
+const GEOFOOT = `Метка на карте показывает адрес из объявления только там, где продавец его назвал ` +
+  `(таких ${acc.h + acc.s} из ${N}); иначе это центр населённого пункта, а не место дома.`;
+const IND = industry.cells.map(c => [c.lat, c.lon, c.km2]);
+// Города на карте — из справочника CITIES9, все от 25 тыс. населения (просьба
+// покупателя 03.09.2026: население видно у названия, и чем город крупнее, тем
+// крупнее и жирнее подпись; 25 тыс. — базовый размер). Русские названия: страница
+// русскоязычная, а справочник украинский. Города меньше 25 тыс. на карту не идут:
+// их 65, подписи слились бы в кашу, а порог покупателя — ровно 25 тыс.
+const CITY_RU = {
+  'Київ': 'Киев', 'Дніпро': 'Днепр', 'Кривий Ріг': 'Кривой Рог', 'Черкаси': 'Черкассы', 'Камʼянське': 'Каменское',
+  'Кропивницький': 'Кропивницкий', 'Кременчук': 'Кременчуг', 'Біла Церква': 'Белая Церковь', 'Бровари': 'Бровары',
+  'Нікополь': 'Никополь', 'Павлоград': 'Павлоград', 'Умань': 'Умань', 'Олександрія': 'Александрия', 'Самар': 'Самар',
+  'Сміла': 'Смела', 'Ніжин': 'Нежин', 'Ірпінь': 'Ирпень', 'Бориспіль': 'Борисполь', 'Фастів': 'Фастов',
+  'Марганець': 'Марганец', 'Світловодськ': 'Светловодск', 'Жовті Води': 'Жёлтые Воды', 'Вишневе': 'Вишнёвое',
+  'Покров': 'Покров', 'Буча': 'Буча', 'Васильків': 'Васильков', 'Боярка': 'Боярка', 'Обухів': 'Обухов',
+  'Вишгород': 'Вышгород', 'Синельникове': 'Синельниково', 'Тернівка': 'Терновка', 'Шахтарське': 'Шахтёрское',
+  'Переяслав': 'Переяслав',
+};
+// Места из хроники воздушной угрозы, которых нет в CITY_RU: там только города
+// от 25 тыс., а ракеты рисуются и у Бурштына с его ТЭС, и у Добротвора.
+const STRIKE_RU = {
+  'Славутич': 'Славутич', 'Яготин': 'Яготин', 'Гостомель': 'Гостомель', 'Українка': 'Украинка', 'Березань': 'Березань',
+  'Богуслав': 'Богуслав', 'Сквира': 'Сквира', 'Коцюбинське': 'Коцюбинское', 'Тетіїв': 'Тетиев', 'Кагарлик': 'Кагарлык',
+  'Бородянка': 'Бородянка', 'Узин': 'Узин', 'Рокитне (Київ)': 'Ракитное', 'Миронівка': 'Мироновка', 'Баришівка': 'Барышевка',
+  'Макарів': 'Макаров', 'Іванків': 'Иванков', 'Глеваха': 'Глеваха', 'Ржищів': 'Ржищев',
+  'Вільногірськ': 'Вольногорск', 'Підгородне': 'Подгородное', 'Пʼятихатки': 'Пятихатки', 'Верхньодніпровськ': 'Верхнеднепровск',
+  'Апостолове': 'Апостолово', 'Зеленодольськ': 'Зеленодольск', 'Васильківка': 'Васильковка', 'Широке': 'Широкое',
+  'Перещепине': 'Перещепино', 'Верхівцеве': 'Верховцево', 'Покровське': 'Покровское',
+  'Знамʼянка': 'Знаменка', 'Долинська': 'Долинская', 'Новоукраїнка': 'Новоукраинка', 'Гайворон': 'Гайворон',
+  'Благовіщенське': 'Благовещенское', 'Мала Виска': 'Малая Виска', 'Бобринець': 'Бобринец', 'Новомиргород': 'Новомиргород',
+  'Олександрівка (Кір)': 'Александровка', 'Помічна': 'Помошная', 'Петрове': 'Петрово',
+};
+// Крупные рисуются первыми: при наложении подписей выживает та, что важнее.
+const MAP_CITIES = CITIES9.filter(c => c[3] >= 25).sort((a, b) => b[3] - a[3]).map(c => {
+  const ru = CITY_RU[c[0]];
+  if (!ru) throw new Error('нет русского названия для города ' + c[0] + ' — добавь в CITY_RU, иначе он молча исчезнет с карты');
+  return [ru, c[1], c[2], c[3]];
+});
+
+// Слой карты «куда летело»: место, координаты, уровень 1..5, ЦЕЛЕЙ (оценка снизу —
+// это число подписано у ракеты), целей сверху, ночей «на город», ночей всего,
+// эпизодов, взрывов/ПВО, доля ракет в процентах. Место, которого в хронике нет
+// вообще, в массив не попадает — на карте у него не будет ракеты (просьба покупателя).
+const STRIKES = strikes.cities.map(c => {
+  const ru = CITY_RU[c.name] || STRIKE_RU[c.name];
+  if (!ru) throw new Error('нет русского названия для места «' + c.name + '» — добавь в STRIKE_RU, иначе ракета молча исчезнет с карты');
+  const misPct = c.mis + c.drn ? Math.round(100 * c.mis / (c.mis + c.drn)) : 0;
+  return [ru, c.lat, c.lon, STR_LVL(c.obj), c.obj, c.objSum, c.atNights, c.nights, c.n, c.hits, misPct];
+}).filter(t => t[4] > 0).sort((a, b) => b[4] - a[4]);
+// Места с нулём целей (в хронике есть, но всё пролетало мимо — Городок, Березно,
+// Погребище) на карту не идут: ракета с подписью «0» противоречит сама себе.
+// В таблице они остаются, а в карточке лота у них своя формулировка — «летело мимо».
+
+const cluster = clusterTpl
+  .replace('{{PTS}}', () => JSON.stringify(pts).replace(/<\//g, '<\\/'))
+  .replace('{{INDUSTRY}}', () => JSON.stringify(IND))
+  .replace('{{HEAT}}', () => JSON.stringify(CITIES9.map(c => [c[1], c[2], c[3]])))
+  .replace('{{STRIKES}}', () => JSON.stringify(STRIKES))
+  // контуры городов раньше читались из scratchpad сессии 2ba88487; Temp вычищен, и 20.10.2026
+  // они перенесены в репозиторий (извлечены из опубликованной сборки 19.09.2026)
+  .replace('{{CITYSHAPES}}', () => JSON.stringify(rd(D + 'city-shapes.json').filter(c => c.name !== 'Ужгород')))
+  .replace('{{OBLASTS}}', () => JSON.stringify(shapes.map(o => ({ name: o.name, path: o.path, lx: o.lx, ly: o.ly }))))
+  .replace('{{GEOACC}}', () => GEOACC)
+  .replace('{{CITIES}}', () => JSON.stringify(MAP_CITIES))
+  .replace(/\{\{N\}\}/g, String(N));
+
+const SITE = 'https://qwert11.github.io/budynky-shid/';
+const ARTIFACT = 'https://claude.ai/code/artifact/d9bb1462-3a1a-4453-8915-b6cef4c42580';
+const WEST = 'https://qwert11.github.io/budynky-zahid/';
+const XLINK = {
+  artifact: `<p class="xlink"><span>Та же подборка:</span><a href="${SITE}" target="_blank" rel="noopener">↗ открыть на сайте</a><span>публичная ссылка — открывается с телефона и пересылается кому угодно.</span></p>`,
+  site: `<p class="xlink"><span>Соседний каталог:</span><a href="${WEST}" target="_blank" rel="noopener">↗ запад — 9 областей</a><span>тот же формат: Волынь, Ровенщина, Львовщина, Тернопольщина, Прикарпатье, Буковина, Хмельниччина, Житомирщина, Винничина.</span></p>`,
+};
+
+// ── Таблица «куда летело» под картой: по областям и по городам. Нужна затем, что
+// на карте видно только размер ракеты, а решение принимается по цифрам; на телефоне
+// подсказки при наведении не работают вовсе.
+function strikeTable() {
+  if (!strikes.cities.length) return '';
+  const per = `${strikes.from.split('-').reverse().join('.')} — ${strikes.to.split('-').reverse().join('.')}`;
+  // «Красная зона» — уровни 4 и 5. Считаем из STRIKES, а не руками: иначе после
+  // пересборки текст разошёлся бы с таблицей и с картой.
+  const red = STRIKES.filter(t => t[3] >= 4).map(t => t[0]);
+  const lv3 = STRIKES.filter(t => t[3] === 3).map(t => t[0]);
+  const top = STRIKES.slice().sort((a, b) => b[9] - a[9])[0];
+  const hot = top ? `${top[0]} (${top[9]} сообщений о взрывах и работе ПВО)` : '';
+  // Больше всего ракет, а не дронов: важно отдельно — дрон над городом обычно сбивают
+  // Названия подставляются в именительном падеже, поэтому фразы построены так,
+  // чтобы падеж не требовался: «Стрый 52%», а не «у Стрый 52%».
+  const misTop = STRIKES.filter(t => t[4] >= 25).sort((a, b) => b[10] - a[10]).slice(0, 3)
+    .map(t => `${t[0]} — ${t[10]}%`);
+  // Пример «много целей за мало ночей» против «размазано по годам» — берём из данных,
+  // иначе после пересборки в тексте останутся прошлые цифры.
+  const big = STRIKES.filter(t => t[4] >= 40);
+  const bursty = big.slice().sort((a, b) => b[4] / b[6] - a[4] / a[6])[0];
+  const spread = big.slice().sort((a, b) => a[4] / a[6] - b[4] / b[6])[0];
+  const burst = bursty && spread
+    ? `${bursty[0]} — ${bursty[4]} ${targetWord(bursty[4])} всего за ${nights(bursty[6])}, ` +
+      `то есть несколькими большими волнами; ${spread[0]} — ${spread[4]} ${targetWord(spread[4])}, ` +
+      `но растянуто на ${nights(spread[6])}`
+    : '';
+  // Сколько лотов каталога стоит у городов каждого уровня: цифра, которая
+  // переводит карту в решение — «сколько из 894 вообще стоит смотреть».
+  const byLvl = [0, 0, 0, 0, 0, 0];
+  for (const u of [...units, ...semi]) {
+    const c = u.city ? STRK[u.city] : null;
+    byLvl[c ? STR_LVL(c.obj) : 0]++;
+  }
+  const lotWord = n => n % 10 === 1 && n % 100 !== 11 ? 'лот' : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'лота' : 'лотов');
+  const obl = [...strikes.oblasts].sort((a, b) => b.nights - a.nights);
+  const oRows = obl.map(o => `<tr><td>${esc(o.ru || o.name)}</td><td class="n">${o.nights}</td><td class="n">${fmt(o.n)}</td><td class="n">${o.at}</td><td class="n">${o.hits}</td></tr>`).join('');
+  const cRows = STRIKES.map(t => {
+    const [ru, , , lv, obj, objSum, at, ni, n, hits, misPct] = t;
+    return `<tr><td><svg class="rkt" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="${ROCKET_D}" fill="${STR_COLOR[lv]}"/></svg> ${esc(ru)}</td>` +
+      `<td class="n"><b>${obj}</b></td><td class="n">${objSum}</td>` +
+      `<td class="n">${at}</td><td class="n">${ni}</td><td class="n">${n}</td><td class="n">${hits || ''}</td>` +
+      `<td class="n">${misPct}%</td><td class="lv" style="--sc:${STR_COLOR[lv]}">${STR_WORD[lv]}</td></tr>`;
+  }).join('');
+  const zero = CITIES9.filter(c => !STRK[c[0].replace(/ \((Хм|Київ|Кір)\)/, '')]).map(c => c[0].replace(/ \((Хм|Київ|Кір)\)/, ''));
+  return `<details class="strk" id="strikes">
+<summary><b>Куда летели ракеты и дроны за всю войну</b> <span>— хроника канала «Николаевский Ванёк», ${per}</span></summary>
+<div class="strkb">
+<p>На карте у каждого места стоит <b>ракета</b>, и <b>рядом с ней — число целей</b>: сколько
+ракет и дронов канал сообщил курсом на это место за всю войну. Чем больше число, тем крупнее
+ракета. Где за всю войну не летело ни разу — ракеты нет вовсе. Слой выключается в легенде карты.</p>
+<p class="strkred"><b>Красная зона — ${red.join(' · ')}.</b> Сюда шло от 60 целей за войну.
+Больше всего подтверждённых ударов — ${hot}. Уровень 3 (25–59 целей) — ${lv3.join(', ')}. Отдельно смотрите <b>долю ракет</b>,
+она больше всего здесь: ${misTop.join(', ')} — дрон над городом обычно сбивают, ракета доходит.
+В каталоге у городов красной зоны стоит <b>${byLvl[5] + byLvl[4]}</b> ${lotWord(byLvl[5] + byLvl[4])},
+у городов уровня 3 — <b>${byLvl[3]}</b>, а у городов, которых в хронике нет ни разу, — <b>${byLvl[0]}</b>.</p>
+<p class="strkm"><b>Откуда цифры.</b> Разобрано <b>${fmt(strikes.posts)} постов</b> канала
+<a href="https://t.me/${strikes.channel}" target="_blank" rel="noopener">@${strikes.channel}</a>
+за ${per} — это вся история канала (он начал 17 апреля 2022, поэтому первые два месяца
+войны в счёт не входят). Единица счёта — не пост, а абзац: канал ведёт сводки списком
+(«общая по мопедам:» и дальше по одной группе целей в строке). «Мопед» у него — «шахед».</p>
+<ul class="strkl">
+<li><b>Целей</b> — то самое число у ракеты: сколько ракет и дронов шло <b>курсом на это
+место</b>. Канал почти всегда пишет их количество («4 мопеда северней Житомира», «2 крылатые
+ракеты», «около 30 змейкой»), и эти числа сложены. <b>Это оценка снизу.</b> Одну и ту же
+группу канал упоминает за ночь по нескольку раз, пока её ведут, поэтому по каждой ночи взята
+только <b>самая большая сообщённая группа</b>. Значит, две отдельные волны за одну ночь
+посчитаны как одна, и настоящее число больше. Из диапазона («группа (3-5 шт.)») берётся
+меньшая граница. По этому числу и нарисован размер ракеты: 1–7 · 8–24 · 25–59 · 60–199 ·
+200 и больше.</li>
+<li><b>Целей ↑</b> — та же сумма, но без поправки на повторы: сложены все сообщения. Это
+оценка сверху. Настоящее число где-то между двумя колонками.</li>
+<li><b>Ночей «на город»</b> — сколько разных суток угроза шла именно на это место. Показывает,
+пришлось это на несколько страшных ночей или растянулось на годы: ${burst}.</li>
+<li><b>Ночей всего</b> — сколько суток место вообще попадало в хронику, включая пролёты
+мимо и «дрон западнее города». Разница с предыдущей цифрой и есть <b>транзит</b>: у Нежина
+и Переяслава сотни ночей упоминаний и почти ни одного взрыва — над ними летят на Киев.</li>
+<li><b>Эпизодов</b> — сколько абзацев назвали это место. Мера того, насколько подробно канал
+вёл это направление.</li>
+<li><b>Взрывы/ПВО</b> — абзацы со взрывом, попаданием, сбитием, пожаром или работой ПВО.
+Самая узкая цифра и самая надёжная.</li>
+<li><b>Ракеты %</b> — какая доля упоминаний про ракеты, а не про дроны. Это разные вещи:
+дрон над городом обычно сбивают, ракета доходит.</li>
+</ul>
+<p class="strkw"><b>Чего эти цифры не значат.</b> Это хроника одного канала, а не официальная
+статистика ударов и не число разрушенных домов. Подробность у канала неровная: 2022 год
+описан скупо, с 2024 подробно. «Не летело» значит «канал не называл», а не «безопасно» —
+угроза для области есть и там, где город не упоминали ни разу. <b>Артиллерия и FPV-дроны
+в счёт не входят вовсе</b>: канал ведёт ракеты и «шахеды». Никополь, Марганец и Покров обстреливают
+с левого берега каждый день, и этой цифры здесь нет. Проверять по своему населённому пункту
+всё равно нужно у местных.</p>
+<h3>По областям</h3>
+<div class="strkt"><table>
+<thead><tr><th>Область</th><th class="n">Ночей</th><th class="n">Эпизодов</th><th class="n">«На область»</th><th class="n">Взрывы/ПВО</th></tr></thead>
+<tbody>${oRows}</tbody></table></div>
+<h3>По городам — куда летело</h3>
+<div class="strkt"><table>
+<thead><tr><th>Место</th><th class="n">Целей</th><th class="n">Целей ↑</th><th class="n">Ночей «на город»</th><th class="n">Ночей всего</th><th class="n">Эпизодов</th><th class="n">Взрывы/ПВО</th><th class="n">Ракеты</th><th>Насколько часто</th></tr></thead>
+<tbody>${cRows}</tbody></table></div>
+<h3>Города каталога, которых в хронике нет ни разу</h3>
+<p class="strkz">${zero.map(esc).join(' · ')}</p>
+<p class="strkw">Это ${zero.length} города из ${CITIES9.length} справочника. У них на карте ракеты нет.</p>
+</div>
+</details>`;
+}
+
+function build(mode) {
+  return shell
+    .replace('{{MAP}}', () => cluster)
+    .replace('{{STRIKETABLE}}', () => strikeTable())
+    .replace('{{ROWS}}', () => rowsFor(mode))
+    .replace('{{DEAD0}}', () => JSON.stringify(dead0))
+    .replace('{{GEOLEDE}}', () => GEOLEDE)
+    .replace('{{GEOFOOT}}', () => GEOFOOT)
+    .replace('{{XLINK}}', () => XLINK[mode === 'data' ? 'artifact' : 'site'])
+    .replace(/\{\{DATE\}\}/g, DATE)
+    .replace(/\{\{N\}\}/g, String(N));
+}
+
+const htmlData = build('data');
+fs.writeFileSync(path.join(__dirname, 'best-houses9.html'), htmlData);
+
+const htmlUrl = build('url');
+const cut = htmlUrl.indexOf('<main>');
+const FAVICON = '<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%8F%A1%3C/text%3E%3C/svg%3E">\n';
+const site = '<!doctype html>\n<html lang="ru">\n<head>\n<meta charset="utf-8">\n' + FAVICON +
+  htmlUrl.slice(0, cut).replace(/<meta name="viewport"[^>]*>\n?/, '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n') +
+  '</head>\n<body>\n' + htmlUrl.slice(cut) + '\n</body>\n</html>\n';
+fs.writeFileSync(path.join(__dirname, '..', 'index.html'), site);
+
+console.log('артефакт:', (htmlData.length / 1048576).toFixed(2), 'МБ | страница Pages:', (site.length / 1048576).toFixed(2), 'МБ');
+console.log('лотов:', N, '(готовых', units.length, '+ получистовых', semi.length, '+ чистовых от застройщика', raw.length, ') | точек:', pts.length, '| без координат:', noGeo);
+console.log('ячеек промышленности:', IND.length, '| с рыночными кольцами:', [...units].filter(u => mkt(u.id)).length);
+console.log('с просм/день:', units.filter(u => u.vpd != null).length, '| без миниатюры (артефакт):', [...units, ...semi, ...raw].filter(u => !thumbFor(u, 'data')).length);
+console.log('двойники:', [...units, ...semi, ...raw].filter(u => u.dups && u.dups.length).length);
