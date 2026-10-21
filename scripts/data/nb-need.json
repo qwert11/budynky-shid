@@ -1,1 +1,81 @@
-[]
+[
+ {
+  "id": "METR5301340",
+  "obl": "kyi",
+  "src": "metr",
+  "kind": "house",
+  "quality": 92,
+  "km": 2,
+  "city": "Яготин",
+  "price": 35000,
+  "area": 160,
+  "rooms": 5,
+  "floor": null,
+  "floors": null,
+  "photos": [
+   "https://metrazh.com.ua/files/images/items/5301/5301340l1a69146a.jpg"
+  ],
+  "title": "Новобудова яка коштує вдвоє дешевше ніж її побудувать Є відеоогляд",
+  "link": "https://metrazh.com.ua/novobudova-jaka-koshtuje-vdvoje-deshevshe-nizh-jiji-pobuduvat-je-videooglad-5301340.html"
+ },
+ {
+  "id": "METR5079692",
+  "obl": "kyi",
+  "src": "metr",
+  "kind": "house",
+  "quality": 68,
+  "km": 4,
+  "city": "Буча",
+  "price": 29000,
+  "area": 66,
+  "rooms": 3,
+  "floor": null,
+  "floors": null,
+  "photos": [
+   "https://metrazh.com.ua/files/images/items/5079/5079692l1030aef8.jpg"
+  ],
+  "title": "Продам Таунхаус 66 м² 2 Поверхи Газоблок НОВОБУДОВА Шлагбаум БЕЗ Комісії",
+  "link": "https://metrazh.com.ua/prodam-taunkhaus-66-m2-2-poverkhi-gazoblok-novobudova-shlagbaum-bez-komisiji-5079692.html"
+ },
+ {
+  "id": "METR5312932",
+  "obl": "kir",
+  "src": "metr",
+  "kind": "house",
+  "quality": 97,
+  "km": 0,
+  "city": "Кропивницький",
+  "price": 33000,
+  "area": 120,
+  "rooms": 4,
+  "floor": null,
+  "floors": null,
+  "photos": [
+   "https://metrazh.com.ua/files/images/items/5312/5312932lf63ed271.jpg"
+  ],
+  "title": "Продаж будинку р-н Завадівка, новобудова",
+  "link": "https://metrazh.com.ua/prodazh-budinku-r-n-zavadivka-novobudova-5312932.html"
+ },
+ {
+  "id": "DOMRIA33435314",
+  "obl": "kyi",
+  "src": "domria",
+  "kind": "house",
+  "quality": 61,
+  "km": 7,
+  "city": "Буча",
+  "price": 27000,
+  "area": 45,
+  "rooms": 1,
+  "floor": 1,
+  "floors": 1,
+  "photos": [
+   "https://cdn.riastatic.com/photos/dom/photo/32269/3226941/322694117/322694117xl.webp",
+   "https://cdn.riastatic.com/photos/dom/photo/32269/3226940/322694084/322694084xl.webp",
+   "https://cdn.riastatic.com/photos/dom/photo/32269/3226940/322694090/322694090xl.webp",
+   "https://cdn.riastatic.com/photos/dom/photo/32269/3226941/322694119/322694119xl.webp"
+  ],
+  "title": "Михайла Драгоманова (Паризької комуни) вулиця 8",
+  "link": "https://dom.ria.com/uk/realty-33435314.html"
+ }
+]

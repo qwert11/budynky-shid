@@ -15,18 +15,26 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
 // [city-slug, украинское название по умолчанию, зона — как в OBL_ZONE units9.js]
+// Восток (21.10.2026): поиск по области целиком — у Rieltor это /houses-sale/<Область>-r<id>/;
+// неизвестный адрес области сайт молча подменяет Львовом, поэтому id взяты с живых страниц
+// (кнопка «Вся область» на странице облцентра). [путь, облцентр, зона]
 const CITY = {
-  vol: ['lutsk', 'Луцьк', 'Волынь'], rov: ['rovno', 'Рівне', 'Ровенщина'], lv: ['lvov', 'Львів', 'Львовщина'],
-  ter: ['ternopol', 'Тернопіль', 'Тернопольщина'], if: ['ivano-frankovsk', 'Івано-Франківськ', 'Прикарпатье'],
-  chv: ['chernovtsy', 'Чернівці', 'Буковина'], khm: ['hmelnitskij', 'Хмельницький', 'Хмельниччина'],
-  zht: ['zhitomir', 'Житомир', 'Житомирщина'], vin: ['vinnitsa', 'Вінниця', 'Винничина'],
+  kyi: ['houses-sale/%D0%9A%D0%B8%D1%97%D0%B2%D1%81%D1%8C%D0%BA%D0%B0-r111', 'Київ', 'Киевщина'],
+  dnp: ['houses-sale/%D0%94%D0%BD%D1%96%D0%BF%D1%80%D0%BE%D0%BF%D0%B5%D1%82%D1%80%D0%BE%D0%B2%D1%81%D1%8C%D0%BA%D0%B0-r119', 'Дніпро', 'Днепропетровщина'],
+  kir: ['houses-sale/%D0%9A%D1%96%D1%80%D0%BE%D0%B2%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D1%8C%D0%BA%D0%B0-r114', 'Кропивницький', 'Кировоградщина'],
 };
-const TYPES = { 'flats-sale': 'flat', 'houses-sale': 'house' };
+const TYPES = { 'houses-sale': 'house' };   // восток — только дома
 // широкая полоса в грн с запасом вокруг $30-45k (курс плавает, точный отсекаем по $ из карточки)
-const PMIN = 900000, PMAX = 2300000;
+// восток: дома $20–35 тыс. ≈ 0,87–1,52 млн грн; полоса режется на куски, чтобы каждый влез в MAXPAGE страниц
+const PBANDS = [[800000, 1050000], [1050000, 1300000], [1300000, 1650000]];
 const MAXPAGE = 25;
 
+// curl и Node Rieltor режет 429 через несколько запросов — страницы берём браузером br
+const { brHtml, brClose } = require('./lib-br9');
 async function fetchHtml(url) {
+  return brHtml(url, { ready: 'document.querySelector("[data-listing-items]") || document.querySelector(".catalog-empty")' });
+}
+async function fetchHtmlCurl(url) {
   for (let t = 0; t < 4; t++) {
     try {
       const r = await fetch(url, { headers: { 'user-agent': UA, 'accept-language': 'uk' } });
@@ -91,8 +99,9 @@ function parseCards(html) {
   for (const [obl, [slug, cityUa, zone]] of Object.entries(CITY)) {
     for (const [typePath, kind] of Object.entries(TYPES)) {
       let list = [];
+      for (const [PMIN, PMAX] of PBANDS)
       for (let page = 1; page <= MAXPAGE; page++) {
-        const url = `https://rieltor.ua/${slug}/${typePath}/?page=${page}&price_min=${PMIN}&price_max=${PMAX}`;
+        const url = `https://rieltor.ua/${slug}/?page=${page}&price_min=${PMIN}&price_max=${PMAX}`;
         const html = await fetchHtml(url);
         stats.pages++;
         await sleep(1800 + Math.random() * 900);
@@ -104,11 +113,11 @@ function parseCards(html) {
       }
       stats.raw += list.length;
       for (const c of list) {
-        if (!(c.price >= L.BUDGET_LO && c.price <= L.BUDGET_HI)) continue;
+        if (!L.inBudgetKind(c.price, kind)) continue;
         const title = c.address || cityUa;
         const desc = c.desc || '';
         const txt = title + ' ' + desc;
-        if (kind === 'house' && (c.area || 0) < 65) continue;
+        if (kind === 'house' && (c.area || 0) < L.houseAreaMin(c.price)) continue;
         if (kind === 'flat' && ((c.area || 0) < 50 || (c.rooms != null && c.rooms < 2))) continue;
         if (L.SHARE.test(txt)) continue;
         if (L.UNFIN.test(txt) || L.BAD_TEXT.test(txt)) continue;
@@ -127,4 +136,5 @@ function parseCards(html) {
   fs.writeFileSync(D + 'rieltor9-candidates.json', JSON.stringify(Object.values(store)));
   console.log('rieltor9: страниц', stats.pages, '| карточек всего', stats.raw, '| в бюджете и по правилам', stats.kept);
   console.log('по областям:', stats.byObl);
+  await brClose();
 })();

@@ -27,16 +27,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
 // [geo_id на flatfy.ua, украинское название, зона — как в OBL_ZONE units9.js]
+// восток (21.10.2026): geo_id областей целиком (со страниц «продаж-будинків-<область>»)
 const CITY = {
-  vol: [10012656, 'Луцьк', 'Волынь'],
-  rov: [10019894, 'Рівне', 'Ровенщина'],
-  lv: [10012684, 'Львів', 'Львовщина'],
-  ter: [10023304, 'Тернопіль', 'Тернопольщина'],
-  if: [10008717, 'Івано-Франківськ', 'Прикарпатье'],
-  chv: [10025207, 'Чернівці', 'Буковина'],
-  khm: [10024474, 'Хмельницький', 'Хмельниччина'],
-  zht: [10007252, 'Житомир', 'Житомирщина'],
-  vin: [10003908, 'Вінниця', 'Винничина'],
+  kyi: [10000010, 'Київ', 'Киевщина'],
+  dnp: [10000004, 'Дніпро', 'Днепропетровщина'],
+  kir: [10000011, 'Кропивницький', 'Кировоградщина'],
 };
 const TYPES = { house: 3, flat: 1 }; // section_id
 // [house|flat from to] — добрать тип и полосу цены, дописав к собранному (см. cliBand в lib9.js)
@@ -44,7 +39,7 @@ const BAND = L.cliBand(process.argv);
 const OUT = D + 'flatfy9-candidates.json';
 // источники, уже присутствующие в каталоге под своим именем — карточки-зеркала с этих
 // сайтов не дают новой площади рынка (см. шапку файла)
-const SKIP_SITES = new Set(['rieltor.ua', 'olx.ua', 'lun.ua', 'dom.ria.com', 'metrazh.com.ua']);
+const SKIP_SITES = new Set(['rieltor.ua', 'olx.ua', 'lun.ua', 'dom.ria.com', 'metrazh.com.ua', 'rieltor', 'olx', 'lun', 'domria', 'metrazh']);
 
 async function fetchJson(url) {
   for (let t = 0; t < 4; t++) {
@@ -88,9 +83,11 @@ function photoUrl(imageId) {
           if (!(price >= BAND.from && price <= BAND.to)) continue;
           const area = it.area_total || null;
           const rooms = it.room_count || null;
-          if (kind === 'house' && (area || 0) < 65) continue;
+          if (kind === 'house' && (area || 0) < L.houseAreaMin(price)) continue;
           if (kind === 'flat' && ((area || 0) < 50 || (rooms != null && rooms < 2))) continue;
-          const districtUa = (it.geo_entities || []).find(g => g.type === 'microdistrict' || g.type === 'district')?.name;
+          // по области: населённый пункт — geo_entities типа city/village, а не облцентр поиска
+          const districtUa = (it.geo_entities || []).find(g => /^(city|town|village|settlement|locality)$/.test(g.type))?.name ||
+            (it.geo_entities || []).find(g => g.type === 'microdistrict' || g.type === 'district')?.name;
           const title = it.header || districtUa || cityUa;
           const desc = it.text || '';
           const txt = title + ' ' + desc;

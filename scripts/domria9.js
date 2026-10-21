@@ -132,7 +132,7 @@ function photoUrl(file) {
         if (!(usd >= BAND.from && usd <= BAND.to)) continue;
         const area = r.total_square_meters || null;
         const rooms = r.rooms_count || null;
-        if (kind === 'house' && (area || 0) < 65) continue;
+        if (kind === 'house' && (area || 0) < L.houseAreaMin(usd)) continue;
         if (kind === 'flat' && ((area || 0) < 50 || (rooms != null && rooms < 2))) continue;
         const desc = r.description_uk || '';
         const streetAddr = [r.street_name_uk, r.building_number_str].filter(Boolean).join(' ');

@@ -10,7 +10,7 @@ const D5 = 'C:/Users/xetr11/AppData/Local/Temp/claude/c--Users-xetr11-Documents-
 const rd = f => JSON.parse(fs.readFileSync(f, 'utf8'));
 const ex = f => fs.existsSync(f);
 
-const DATE = '21 октября 2026 (первая сборка востока: дома $20–35 тыс., OLX и DOM.RIA)';
+const DATE = '22 октября 2026 (OLX, DOM.RIA, Метраж, Rieltor, Facebook, Телеграм; дома $20–30k — от 40 м²)';
 const { units, semi, raw } = rd(D + 'units9.json');
 const market = ex(D + 'market9.json') ? rd(D + 'market9.json') : { byId: {} };
 const marketOld = ex(D5 + 'market-all.json') ? rd(D5 + 'market-all.json') : { byId: {} };
@@ -612,8 +612,13 @@ function strikeTable() {
 </details>`;
 }
 
+// Источники без единого лота в сборке на странице не показываем (восток, 22.10.2026:
+// у ЛУНа и Flatfy здесь одни зеркала других площадок, чекбокс с нулём только путает)
+const SRC_HAVE = new Set([...units, ...semi, ...raw].map(u => u.src));
+const shellSrc = shell.replace(/\n\s*<label><input type="checkbox" data-f="src" value="([a-z]+)" checked>[^\n]*<\/label>/g,
+  (m, v) => SRC_HAVE.has(v) ? m : '');
 function build(mode) {
-  return shell
+  return shellSrc
     .replace('{{MAP}}', () => cluster)
     .replace('{{STRIKETABLE}}', () => strikeTable())
     .replace('{{ROWS}}', () => rowsFor(mode))

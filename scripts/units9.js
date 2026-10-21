@@ -161,7 +161,7 @@ const housesCand = [];
 const housesOlx = [];
 for (const u of housesPool) {
   if (!L.inBudgetKind(u.price, 'house')) { drop.budget++; continue; }
-  if ((u.area || 0) < 65) { drop.small++; continue; }
+  if ((u.area || 0) < L.houseAreaMin(u.price)) { drop.small++; continue; }
   if (['dacha', 'garden_house'].includes(u.propType || '')) { drop.badtype++; continue; }
   if (L.SHARE.test((u.title || '') + ' ' + String(u.desc || '').slice(0, 260))) { drop.share++; continue; }
   if (L.UNFIN.test(u.desc || '') || L.UNFIN.test(u.title || '')) { drop.unfin++; continue; }
@@ -256,7 +256,7 @@ for (const x of lunClean) {
     u.gone = !!d.gone;
   }
   if (u.gone) continue;
-  if (u.kind === 'house' && (u.area || 0) < 65) continue;
+  if (u.kind === 'house' && (u.area || 0) < L.houseAreaMin(u.price)) continue;
   if (u.kind === 'flat' && ((u.area || 0) < 50 || ((u.rooms || 0) < 2 && u.rooms != null))) continue;
   if (L.UNFIN.test(u.desc || '')) { drop.unfin++; continue; }
   if (L.SHARE.test((u.title || '') + ' ' + String(u.desc || '').slice(0, 260))) { drop.share++; continue; }
@@ -368,7 +368,10 @@ function pickTop(sets, out, stats, prefix) {
   for (const [key, arr] of Object.entries(sets)) {
     const byObl = {};
     for (const u of arr) {
-      const o = (u.obl || 'unk') + (u.kind === 'house' ? '~' + (L.bandOf(u.price) || 'out') : '');
+      // дома 40–65 м² (порог снижен 22.10.2026) — своя сотня внутри полосы: иначе новые маленькие
+      // дома с высоким индексом вытесняли из топа прежние (правило покупателя — ничего не вытеснять)
+      const small = u.kind === 'house' && (u.area || 0) < 65 ? 's' : '';
+      const o = (u.obl || 'unk') + (u.kind === 'house' ? '~' + (L.bandOf(u.price) || 'out') + small : '');
       (byObl[o] = byObl[o] || []).push(u);
     }
     const parts = [];
@@ -484,7 +487,7 @@ function pushSemi(u, cls) {
 for (const u of housesPool) {
   if (readyIds.has(u.id)) { semiDrop.ready++; continue; }
   if (!L.inBudgetKind(u.price, 'house')) { semiDrop.budget++; continue; }
-  if ((u.area || 0) < 65) { semiDrop.small++; continue; }
+  if ((u.area || 0) < L.houseAreaMin(u.price)) { semiDrop.small++; continue; }
   if (['dacha', 'garden_house'].includes(u.propType || '')) { semiDrop.badtype++; continue; }
   if (shareSemi(u)) { semiDrop.share++; continue; }
   if (vet[u.id] === 'ok') { semiDrop.vetOkReady++; continue; }          // на фото жилой дом — это кандидат в готовое
@@ -538,7 +541,7 @@ for (const x of lunClean) {
     if (d.desc) u.desc = ((u.desc || '') + ' ' + d.desc).slice(0, 1200);
     if (d.gone) continue;
   }
-  if (u.kind === 'house' && (u.area || 0) < 65) { semiDrop.small++; continue; }
+  if (u.kind === 'house' && (u.area || 0) < L.houseAreaMin(u.price)) { semiDrop.small++; continue; }
   if (u.kind === 'flat' && ((u.area || 0) < 50 || ((u.rooms || 0) < 2 && u.rooms != null))) { semiDrop.small++; continue; }
   if (shareSemi(u)) { semiDrop.share++; continue; }
   const cls = L.semiClass(u) || (u.kind === 'flat' || L.SEMI_TXT.util.test(u.desc || '') ? 'shell' : null);

@@ -22,18 +22,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
 // [city-slug, украинское название, зона — как в OBL_ZONE units9.js, центр города lat/lon]
+// Восток (21.10.2026): поиск по области целиком — слаги областей у Metrazh: ko / dnp / kir.
+// Точка карточки — не центр облцентра, а село из адреса карточки («Бородянка, …»),
+// геокод через Nominatim с проверкой контура области (geocode из lib-fb9.js)
 const CITY = {
-  vol: ['lutsk', 'Луцьк', 'Волынь', 50.7472, 25.3254],
-  rov: ['rovno', 'Рівне', 'Ровенщина', 50.6199, 26.2516],
-  lv: ['lvov', 'Львів', 'Львовщина', 49.8397, 24.0297],
-  ter: ['ternopol', 'Тернопіль', 'Тернопольщина', 49.5535, 25.5948],
-  if: ['ivano-frankovsk', 'Івано-Франківськ', 'Прикарпатье', 48.9226, 24.7111],
-  chv: ['chernovtsy', 'Чернівці', 'Буковина', 48.2915, 25.9403],
-  khm: ['khmelnitskiy', 'Хмельницький', 'Хмельниччина', 49.4229, 26.9871],
-  zht: ['zhitomir', 'Житомир', 'Житомирщина', 50.2547, 28.6587],
-  vin: ['vinnitsa', 'Вінниця', 'Винничина', 49.2331, 28.4682],
+  kyi: ['ko', 'Київ', 'Киевщина', 50.4501, 30.5234],
+  dnp: ['dnp', 'Дніпро', 'Днепропетровщина', 48.4647, 35.0462],
+  kir: ['kir', 'Кропивницький', 'Кировоградщина', 48.5079, 32.2623],
 };
-const TYPES = { kvartiry: 'flat', doma: 'house' };
+const F = require('./lib-fb9');
+const TYPES = { doma: 'house' };   // восток — только дома
 const MAXPAGE = 20;
 // [house|flat from to] — добрать тип и полосу цены, дописав к собранному (см. cliBand в lib9.js)
 const BAND = L.cliBand(process.argv);
@@ -133,14 +131,14 @@ function parseCards(html) {
       for (const c of list) {
         if (!(c.price >= BAND.from && c.price <= BAND.to)) continue;
         const txt = c.title + ' ' + c.desc;
-        if (kind === 'house' && (c.area || 0) < 65) continue;
+        if (kind === 'house' && (c.area || 0) < L.houseAreaMin(c.price)) continue;
         if (kind === 'flat' && ((c.area || 0) < 50 || (c.rooms != null && c.rooms < 2))) continue;
         if (L.SHARE.test(txt)) continue;
         if (L.UNFIN.test(txt) || L.BAD_TEXT.test(txt)) continue;
         store[c.id] = {
           id: c.id, kind, title: c.title || c.address || cityUa, url: c.link, price: c.price,
           area: c.area, land: c.land, rooms: c.rooms, floor: c.floor, floors: c.floors,
-          loc: cityUa, zone, lat, lon, locExact: false,
+          loc: cityUa, zone, lat, lon, locExact: false, addr: c.address,
           date: null, photoList: c.photo ? [c.photo] : [], text: c.desc,
         };
         stats.kept++;
@@ -153,6 +151,7 @@ function parseCards(html) {
 
   // Проверка зеркал OLX по странице каждого объявления (см. комментарий в шапке файла)
   const cand = Object.values(store);
+  const OBL_OF_ZONE0 = Object.fromEntries(Object.entries(CITY).map(([o, v]) => [v[2], o]));
   let mirrorDead = 0, mirrorLive = 0, checked = 0, failed = 0;
   const final = [];
   for (const c of cand) {
@@ -167,6 +166,12 @@ function parseCards(html) {
       continue; // зеркало — живое или мёртвое, роли не играет: не новый лот
     }
     c.date = date;
+    // село из адреса карточки: «Бородянка, Бучанский» → Бородянка; не нашлось в области — мимо
+    const place = String(c.addr || '').split(',')[0].trim();
+    const obl = OBL_OF_ZONE0[c.zone];
+    const g = place ? await F.geocode(place, obl) : null;
+    if (!g) { failed++; continue; }
+    c.loc = place; c.lat = g.lat; c.lon = g.lon;
     final.push(c);
     if (checked % 40 === 0) console.log('  проверено', checked, '/', cand.length);
     await sleep(1500 + Math.random() * 700);

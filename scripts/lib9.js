@@ -119,6 +119,10 @@ const PRICE_BANDS = [
   { key: 'p20', lo: LOW_LO, hi: 30000, label: '$20–30 тыс.' },
   { key: 'p30', lo: 30000, hi: BUDGET_HI, label: '$30–35 тыс.' },
 ];
+// Минимальная площадь дома (21.10.2026, восток): в полосе $20–30 тыс. — от 40 м², выше — от 65 м².
+// Повод — дом покупателя из рилса (Мала Виска, $22 500, 3 комнаты, 41 м²): на востоке порог 65 м²
+// отсекал 1 099 домов из 2 332 — почти все хаты дешёвой полосы.
+const houseAreaMin = p => p != null && p < 30000 ? 40 : 65;
 const inBudget = p => p != null && p >= BUDGET_LO && p <= BUDGET_HI;
 const inLow = p => p != null && p >= LOW_LO && p < BUDGET_LO;
 // бюджет с учётом типа: дом — $20–45 тыс., квартира — $30–45 тыс.
@@ -294,5 +298,5 @@ function semiFlatQuality9(u) {
   return scale((ppm + area + (rooms + floor) / 2 + ready) / 6 + near / 3 + bonus);
 }
 
-module.exports = { CITIES9, deLatin, BUDGET_LO, BUDGET_HI, LOW_LO, PRICE_BANDS, inBudget, inLow, inBudgetKind, tierOf, bandOf, cliBand, hav, nearestCity, bell, up, down, scale, houseQuality9, flatQuality9, BUILD_TYPE_W, buildTypeW, UNFIN, SHARE, BAD_REPAIR, BAD_TEXT, isRough, REGION2SLUG, SLUG2LABEL, inPolys, oblastOf, clamp,
+module.exports = { CITIES9, deLatin, houseAreaMin, BUDGET_LO, BUDGET_HI, LOW_LO, PRICE_BANDS, inBudget, inLow, inBudgetKind, tierOf, bandOf, cliBand, hav, nearestCity, bell, up, down, scale, houseQuality9, flatQuality9, BUILD_TYPE_W, buildTypeW, UNFIN, SHARE, BAD_REPAIR, BAD_TEXT, isRough, REGION2SLUG, SLUG2LABEL, inPolys, oblastOf, clamp,
   SEMI, SEMI_TXT, semiClass, semiHouseQuality9, semiFlatQuality9 };

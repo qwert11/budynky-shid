@@ -95,7 +95,7 @@ function fieldUsd(a) {
     if (!pr) { no('без цены'); continue; }
     if (!L.inBudgetKind(pr.usd, 'house')) { no('цена вне $20–45 тыс.'); continue; }
     const area = F.areaOf(t);
-    if (area != null && area < 65) { no('меньше 65 м²'); continue; }
+    if (area != null && area < L.houseAreaMin(pr.usd)) { no('меньше порога площади'); continue; }
     if (L.SHARE.test(t.slice(0, 400))) { no('доля'); continue; }
     if (F.badText(t)) { no('недострой/под ремонт'); continue; }
     if (!(d.photos || []).length && !x.photo) { no('без фото'); continue; }
@@ -104,7 +104,9 @@ function fieldUsd(a) {
     const txtObls = F.OBL_RE.filter(([, re]) => re.test(t)).map(([o]) => o);
     const obl = txtObls.length === 1 && !F.OTHER_OBL.test(t) ? txtObls[0] : fbObl;
     if (!obl || !F.ZONE[obl]) { no('не наши области'); continue; }
-    rows.push({ x, d, t, title, date, pr, obl, area, loc: F.locOf(t) });
+    // село капсом («с. НОВА ЗНАМ’ЯНКА») locOf не узнаёт — второй проход с обычным регистром
+    const loc0 = F.locOf(t) || F.locOf(t.replace(/[А-ЯІЇЄҐ'’ʼ]{3,}/g, w => w[0] + w.slice(1).toLowerCase()));
+    rows.push({ x, d, t, title, date, pr, obl, area, loc: loc0 });
   }
   // перевыкладывания одного дома: тот же продавец и заголовок, или то же село, площадь и
   // начало текста — оставляем самое свежее
@@ -142,6 +144,16 @@ function fieldUsd(a) {
     if (r.loc) {
       const g = await F.geocode(r.loc, r.obl);
       if (g && L.hav(g.lat, g.lon, r.d.lat, r.d.lon) <= 80) { lat = g.lat; lon = g.lon; exact = true; loc = r.loc; }
+      else {
+        // восток: продавцы часто ставят точкой Киев, а дом — в другой области («с. Нова Знамʼянка»
+        // у продавца из Ирпеня). Село ищем и в двух других областях; берём, если нашлось ровно в одной
+        const alt = [];
+        for (const o of Object.keys(F.ZONE)) if (o !== r.obl) { const h = await F.geocode(r.loc, o); if (h) alt.push(h); }
+        if (alt.length === 1) { lat = alt[0].lat; lon = alt[0].lon; exact = true; loc = r.loc; }
+        // село названо, но ни в одной из наших областей его нет (Нова Знамʼянка — Полтавщина):
+        // точка продавца тут врёт, лот не наш
+        if (!g && !alt.length) { no('село вне наших областей'); continue; }
+      }
     }
     const obl = L.oblastOf(lat, lon, F.shapes);
     if (!obl || !F.ZONE[obl]) { no('точка вне наших областей'); continue; }

@@ -26,7 +26,8 @@ const path = require('path');
 const { connect } = require('C:/Users/xetr11/Documents/tools/browser-cli/lib/cdp.js');
 const L = require('./lib9');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const pause = () => sleep(1500 + Math.random() * 2000);
+// восток: после «Rate limit exceeded» 21.10.2026 темп вдвое медленнее
+const pause = () => sleep(3500 + Math.random() * 3500);
 const MODE = process.argv[2] || 'all';
 const RADIUS = +(process.argv[3] || 30);
 const ONLY = process.env.FBM_ONLY;     // отладка: один город
