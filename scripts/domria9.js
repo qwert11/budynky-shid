@@ -136,7 +136,9 @@ function photoUrl(file) {
         if (kind === 'flat' && ((area || 0) < 50 || (rooms != null && rooms < 2))) continue;
         const desc = r.description_uk || '';
         const streetAddr = [r.street_name_uk, r.building_number_str].filter(Boolean).join(' ');
-        const title = streetAddr || r.district_name_uk || cityUa;
+        // восток ищет по области целиком: населённый пункт — city_name_uk, а не облцентр поиска
+        const place = r.district_name_uk || r.city_name_uk || cityUa;
+        const title = streetAddr || place;
         const txt = title + ' ' + desc;
         if (L.SHARE.test(txt)) continue;
         if (L.UNFIN.test(txt) || L.BAD_TEXT.test(txt)) continue;
@@ -145,7 +147,7 @@ function photoUrl(file) {
           id: 'DOMRIA' + id, kind, title, url: `https://dom.ria.com/uk/realty-${id}.html`,
           price: usd, area, land: r.ares_count || null, rooms,
           floor: r.floor || null, floors: r.floors_count || null,
-          loc: r.district_name_uk || cityUa, zone,
+          loc: place, zone,
           lat: r.latitude || null, lon: r.longitude || null, locExact: true,
           date: r.publishing_date ? String(r.publishing_date).slice(0, 10) : null,
           photoList: photos, text: desc,

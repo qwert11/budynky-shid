@@ -79,6 +79,8 @@ function coordsFor(u) {
   // адрес из текста объявления точнее центра населённого пункта
   const a = addr9[u.id];
   if (a && a.lat) return { lat: a.lat, lon: a.lon, src: a.src === 'street' ? (a.house ? 'house' : 'street') : 'place' };
+  // точку поставил сам продавец на карте источника (DOM.RIA, Rieltor) — центр села её не перебивает
+  if (u.locExact && u.lat && u.lon) return { lat: u.lat, lon: u.lon, src: 'loc' };
   const k = (u.loc || '') + '|' + (u.region || '');
   const g = geo9[k];
   if (g && g.lat) return { lat: g.lat, lon: g.lon, src: 'loc' };
