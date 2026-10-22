@@ -295,7 +295,9 @@ const tgAll = [...loadExt('tme-candidates.json', 'tg', 'tg-geocode.json', EXT), 
 // fbm9-candidates.json — Facebook Marketplace (21.10.2026, scripts/fb9-market.js): поиск
 // домов вокруг каждого города девяти областей, карточки открываются по очереди
 const fbAll = [...loadExt('fb-candidates.json', 'fb', null, EXT), ...loadExt('fb9-candidates.json', 'fb', null, D),
-  ...loadExt('fbm9-candidates.json', 'fb', null, D)]
+  ...loadExt('fbm9-candidates.json', 'fb', null, D),
+  // рилсы Facebook (22.10.2026, scripts/fb9-reels.js): лента рекомендаций, место — из подписи
+  ...loadExt('fbr9-candidates.json', 'fb', null, D)]
   .map(finish).filter(gate);
 // Rieltor.ua отдаёт координаты прямо в карточке поиска; Metrazh координат не даёт —
 // сборщик (metrazh9.js) сам подставляет центр города поиска в r.lat/r.lon, поэтому
